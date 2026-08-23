@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cable Labelmaker</title>
+  <style>
+    :root {
+      --paper: #f4f1ea;
+      --card: #fffefb;
+      --ink: #171717;
+      --muted: #6c6861;
+      --line: #dcd7cd;
+      --blue: #2457e6;
+      --blue-dark: #173bb7;
+      --green: #177245;
+      --red: #b33a32;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+      color: var(--ink);
+      background: var(--paper);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at 8% 0%, rgba(36,87,230,.09), transparent 32rem),
+        var(--paper);
+    }
+    main { width: min(1180px, calc(100% - 44px)); margin: 0 auto; padding: 34px 0 28px; }
+    header { display: flex; align-items: end; justify-content: space-between; gap: 28px; margin-bottom: 24px; }
+    h1 { margin: 0; font-size: clamp(34px, 5vw, 54px); letter-spacing: -.045em; line-height: .95; }
+    .eyebrow { color: var(--blue); font-weight: 750; letter-spacing: .12em; font-size: 12px; margin-bottom: 10px; }
+    .subtitle { color: var(--muted); font-size: 15px; text-align: right; }
+    .workspace { display: grid; grid-template-columns: minmax(310px, .86fr) minmax(420px, 1.14fr); gap: 18px; }
+    .card { background: var(--card); border: 1px solid rgba(42,37,29,.08); border-radius: 20px; box-shadow: 0 12px 42px rgba(51,43,29,.07); }
+    .editor, .preview-card { padding: 22px; min-height: 490px; }
+    .section-title { color: var(--muted); font-size: 11px; font-weight: 800; letter-spacing: .13em; margin-bottom: 7px; }
+    .hint { color: var(--muted); font-size: 13px; margin-bottom: 14px; }
+    textarea {
+      display: block; width: 100%; height: 332px; resize: none; border: 1px solid var(--line); border-radius: 13px;
+      padding: 15px; background: white; color: var(--ink); font: 500 16px/1.65 ui-monospace, "SFMono-Regular", Menlo, monospace;
+      outline: none; transition: border .15s, box-shadow .15s;
+    }
+    textarea:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(36,87,230,.12); }
+    .length-row { display: flex; align-items: center; gap: 10px; margin-top: 17px; color: var(--muted); font-size: 13px; }
+    input[type=range] { accent-color: var(--blue); flex: 1; }
+    input[type=number] { width: 64px; border: 1px solid var(--line); border-radius: 8px; padding: 7px; font: inherit; }
+    .preview-card { display: flex; flex-direction: column; }
+    .tape-stage {
+      flex: 1; min-height: 330px; display: grid; place-items: center; overflow: hidden; margin-top: 12px;
+      border-radius: 15px; border: 1px solid #d8d4cc; background-color: #e9e6df;
+      background-image: linear-gradient(45deg, rgba(255,255,255,.35) 25%, transparent 25%), linear-gradient(-45deg, rgba(255,255,255,.35) 25%, transparent 25%);
+      background-size: 22px 22px;
+    }
+    #preview { width: min(92%, 600px); height: auto; background: white; box-shadow: 0 8px 22px rgba(0,0,0,.16); }
+    .preview-error { min-height: 18px; color: var(--red); font-size: 12px; margin-top: 8px; }
+    .physical-note { color: var(--muted); font-size: 13px; margin-top: 13px; line-height: 1.45; }
+    footer { display: grid; grid-template-columns: 1fr auto auto auto; align-items: center; gap: 10px; margin-top: 18px; }
+    .status { display: flex; gap: 9px; align-items: center; min-width: 0; color: var(--muted); font-size: 13px; }
+    .status span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: #99958d; }
+    .dot.ok { background: var(--green); } .dot.work { background: var(--blue); animation: pulse 1s infinite; } .dot.bad { background: var(--red); }
+    @keyframes pulse { 50% { opacity: .35; } }
+    button { border: 0; border-radius: 11px; padding: 11px 15px; font: 700 13px/1 -apple-system, sans-serif; cursor: pointer; transition: transform .1s, opacity .1s; }
+    button:hover { transform: translateY(-1px); } button:disabled { opacity: .45; cursor: wait; transform: none; }
+    .secondary { color: var(--ink); background: #e8e4dc; }
+    .primary { color: white; background: linear-gradient(135deg, var(--blue), var(--blue-dark)); padding-inline: 20px; }
+    @media (max-width: 840px) { .workspace { grid-template-columns: 1fr; } .editor, .preview-card { min-height: auto; } .tape-stage { min-height: 260px; } footer { grid-template-columns: 1fr 1fr; } .status { grid-column: 1 / -1; } header { align-items: start; } }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div><div class="eyebrow">DIRECT USB · PT-D600</div><h1>Cable Labelmaker</h1></div>
+      <div class="subtitle">24 mm wraparound labels<br>48 mm laminated-tape overlap</div>
+    </header>
+    <section class="workspace">
+      <div class="card editor">
+        <div class="section-title">LABELS</div>
+        <div class="hint">One cable per row. Use <strong>|</strong> or <strong>-&gt;</strong> for up to three stacked lines.</div>
+        <textarea id="labels" spellcheck="false">AT&amp;T UPLINK
+COMCAST UPLINK
+RACK FLEX UPLINK
+TRENDNET LAN</textarea>
+        <div class="length-row">
+          <label for="lengthRange">Wrap length</label>
+          <input id="lengthRange" type="range" min="39" max="70" value="48">
+          <input id="lengthNumber" type="number" min="39" max="70" value="48">
+          <span>mm</span>
+        </div>
+      </div>
+      <div class="card preview-card">
+        <div class="section-title">PRINT PREVIEW</div>
+        <div class="hint">The active line appears below at the tape’s physical proportions, including print margins.</div>
+        <div class="tape-stage"><img id="preview" alt="Cable label preview"></div>
+        <div id="previewError" class="preview-error" aria-live="polite"></div>
+        <div class="physical-note">Wipe the cable first. Wrap firmly, then overlap the laminated tape onto itself by at least 12 mm.</div>
+      </div>
+    </section>
+    <footer>
+      <div class="status"><span id="dot" class="dot"></span><span id="statusText">Checking printer…</span></div>
+      <button id="check" class="secondary">Check Printer</button>
+      <button id="printOne" class="secondary">Print This Label</button>
+      <button id="printAll" class="primary">Print All</button>
+    </footer>
+  </main>
+  <script>
+    const labels = document.querySelector('#labels');
+    const preview = document.querySelector('#preview');
+    const previewError = document.querySelector('#previewError');
+    const range = document.querySelector('#lengthRange');
+    const number = document.querySelector('#lengthNumber');
+    const dot = document.querySelector('#dot');
+    const statusText = document.querySelector('#statusText');
+    const buttons = [...document.querySelectorAll('button')];
+    let previewTimer;
+    let previewController;
+
+    function allLabels() { return labels.value.split('\n').map(x => x.trim()).filter(Boolean); }
+    function currentLabel() {
+      const before = labels.value.slice(0, labels.selectionStart);
+      const row = before.split('\n').length - 1;
+      return labels.value.split('\n')[row]?.trim() || '';
+    }
+    function setStatus(text, state='') { statusText.textContent = text; dot.className = `dot ${state}`; }
+    function setBusy(busy) { buttons.forEach(button => button.disabled = busy); }
+    async function request(path, options={}) {
+      const response = await fetch(path, options);
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        const error = new Error(body.error || body.detail || `Request failed: ${response.status}`);
+        error.payload = body;
+        throw error;
+      }
+      return response;
+    }
+    async function updatePreview() {
+      previewController?.abort();
+      previewController = new AbortController();
+      try {
+        const response = await request('/api/preview', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({label:currentLabel() || 'CABLE LABEL', length:+number.value}), signal:previewController.signal});
+        const url = URL.createObjectURL(await response.blob());
+        const old = preview.src;
+        preview.src = url;
+        previewError.textContent = '';
+        if (old.startsWith('blob:')) URL.revokeObjectURL(old);
+      } catch (error) { if (error.name !== 'AbortError') previewError.textContent = error.message; }
+    }
+    function schedulePreview() { clearTimeout(previewTimer); previewTimer = setTimeout(updatePreview, 100); }
+    async function checkPrinter() {
+      setBusy(true); setStatus('Checking printer…', 'work');
+      try { const data = await (await request('/api/status')).json(); setStatus(data.detail || 'PT-D600 connected', 'ok'); }
+      catch (error) { setStatus(error.message, 'bad'); }
+      finally { setBusy(false); }
+    }
+    async function print(list) {
+      if (!list.length) return setStatus('Add at least one label', 'bad');
+      setBusy(true); setStatus(`Printing ${list.length} label${list.length === 1 ? '' : 's'}…`, 'work');
+      try { const data = await (await request('/api/print', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({labels:list, length:+number.value})})).json(); setStatus(`Printed ${data.printed} label${data.printed === 1 ? '' : 's'}`, 'ok'); }
+      catch (error) {
+        const printed = error.payload?.printed;
+        if (printed > 0) setStatus(`Printed ${printed} of ${error.payload.total}; stopped at “${error.payload.failed_label}”`, 'bad');
+        else setStatus(error.message, 'bad');
+      }
+      finally { setBusy(false); }
+    }
+    labels.addEventListener('input', schedulePreview); labels.addEventListener('click', schedulePreview); labels.addEventListener('keyup', schedulePreview);
+    range.addEventListener('input', () => { number.value = range.value; schedulePreview(); });
+    number.addEventListener('input', () => { range.value = number.value; schedulePreview(); });
+    document.querySelector('#check').addEventListener('click', checkPrinter);
+    document.querySelector('#printOne').addEventListener('click', () => { const label = currentLabel(); print(label ? [label] : []); });
+    document.querySelector('#printAll').addEventListener('click', () => print(allLabels()));
+    updatePreview(); checkPrinter();
+  </script>
+</body>
+</html>

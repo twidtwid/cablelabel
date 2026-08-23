@@ -1,0 +1,73 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-14
+    timeout-minutes: 25
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Verify release tag
+        shell: bash
+        run: |
+          package_version="$(awk -F'"' '/^__version__ = / { print $2; exit }' \
+            cable_labelmaker/__init__.py)"
+          expected_tag="v${package_version}"
+
+          if [[ "$GITHUB_REF_NAME" != "$expected_tag" ]]; then
+            echo "Release tag $GITHUB_REF_NAME does not match package version $package_version" >&2
+            exit 1
+          fi
+
+          git fetch --no-tags origin main
+          tagged_commit="$(git rev-list -n 1 "$GITHUB_REF_NAME")"
+          if ! git merge-base --is-ancestor "$tagged_commit" origin/main; then
+            echo "Release tag $GITHUB_REF_NAME is not on origin/main" >&2
+            exit 1
+          fi
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build dependency
+        run: brew install imagemagick
+
+      - name: Run checks
+        run: make check
+
+      - name: Build application
+        run: scripts/build-mac-app.sh
+
+      - name: Verify application bundle
+        run: >-
+          scripts/verify-macos-app.sh
+          "dist/Cable Labelmaker.app"
+          "${GITHUB_REF_NAME#v}"
+
+      - name: Package application
+        run: >-
+          ditto -c -k --sequesterRsrc --keepParent
+          "dist/Cable Labelmaker.app"
+          "dist/Cable-Labelmaker-${GITHUB_REF_NAME}-macOS-arm64.zip"
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "$GITHUB_REF_NAME"
+          "dist/Cable-Labelmaker-${GITHUB_REF_NAME}-macOS-arm64.zip"
+          --generate-notes
+          --verify-tag

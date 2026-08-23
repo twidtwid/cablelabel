@@ -1,0 +1,9 @@
+.venv/
+.DS_Store
+__pycache__/
+*.pyc
+bin/ptouch
+output/
+build/
+dist/
+*.spec

@@ -1,0 +1,41 @@
+name: Bug report
+description: Report a reproducible Cable Labelmaker problem.
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Do not include credentials, private hostnames, or local network details.
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the expected and actual behavior.
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+      placeholder: macOS 15.6
+    validations:
+      required: true
+  - type: input
+    id: hardware
+    attributes:
+      label: Printer and tape
+      placeholder: Brother PT-D600 with 24 mm laminated tape
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Remove usernames, filesystem paths, hostnames, IP addresses, and label contents first.
+      render: shell

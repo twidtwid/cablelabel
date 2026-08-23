@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>io.github.twidtwid.cablelabel</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Applications/Cable Labelmaker.app/Contents/MacOS/Cable Labelmaker</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/Applications/Cable Labelmaker.app/Contents/MacOS</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>CABLELABEL_PORT</key>
+    <string>9462</string>
+    <key>CABLELABEL_TRUSTED_ORIGINS</key>
+    <string></string>
+  </dict>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>ThrottleInterval</key>
+  <integer>5</integer>
+  <key>StandardOutPath</key>
+  <string>/tmp/cablelabel.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/cablelabel.err.log</string>
+</dict>
+</plist>
