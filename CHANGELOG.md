@@ -9,6 +9,8 @@ Notable changes are listed newest first.
 - Added stable JSON results and documented exit codes for agentic use.
 - Added `~/.local/bin/cablelabel` during macOS and Linux installation.
 - macOS upgrades retire the pre-release LaunchAgent before starting the current service.
+- Release archives now include the persistent installer and required service files.
+- Installers verify an app-specific health response; Linux upgrades roll back on failure.
 
 ## 0.2.0 — 2026-08-23
 

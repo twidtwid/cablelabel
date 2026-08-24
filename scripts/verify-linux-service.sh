@@ -20,17 +20,26 @@ command -v systemd-analyze >/dev/null || {
 
 exec_start=""
 exec_start_count=0
+private_tmp_enabled=0
 while IFS= read -r line || [[ -n "$line" ]]; do
   case "$line" in
     ExecStart=*)
       exec_start="$line"
       exec_start_count=$((exec_start_count + 1))
       ;;
+    PrivateTmp=true)
+      private_tmp_enabled=1
+      ;;
   esac
 done <"$unit_file"
 
 if [[ "$exec_start_count" -ne 1 || "$exec_start" != "$expected_exec_start" ]]; then
   echo "Linux service must contain exactly: $expected_exec_start" >&2
+  exit 1
+fi
+
+if (( private_tmp_enabled )); then
+  echo "Linux service must share /tmp with the CLI for printer locking." >&2
   exit 1
 fi
 

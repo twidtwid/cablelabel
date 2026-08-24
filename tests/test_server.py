@@ -6,6 +6,7 @@ import urllib.error
 import urllib.request
 from io import BytesIO
 from pathlib import Path
+from unittest.mock import patch
 
 from PIL import Image
 
@@ -14,6 +15,7 @@ from cable_labelmaker.renderer import mm_to_px, render_wrap_label
 from cable_labelmaker.server import (
     create_server,
     open_browser_from_environment,
+    run_server,
     runtime_config_from_environment,
 )
 
@@ -83,6 +85,13 @@ class LabelmakerServerTests(unittest.TestCase):
         self.assertIn("Print All", body)
         self.assertNotIn("image-rendering: pixelated", body)
 
+    def test_health_identifies_the_running_version(self):
+        with urllib.request.urlopen(self.base_url + "/api/health", timeout=2) as response:
+            payload = json.load(response)
+
+        self.assertEqual("cablelabel", payload["name"])
+        self.assertRegex(payload["version"], r"^\d+\.\d+\.\d+$")
+
     def test_preview_models_the_full_tape_around_the_printer_bitmap(self):
         with self.post("/api/preview", {"label": "MAC MINI -> SWITCH 08", "length": 48}) as response:
             image = Image.open(BytesIO(response.read())).convert("1")
@@ -139,7 +148,7 @@ class LabelmakerServerTests(unittest.TestCase):
         payload = json.load(error.exception)
         self.assertEqual(503, error.exception.code)
         self.assertFalse(payload["connected"])
-        self.assertIn("P-touch Editor", payload["detail"])
+        self.assertIn("other program", payload["detail"])
 
     def test_invalid_host_is_rejected(self):
         error = self.rejected_post(
@@ -302,11 +311,44 @@ class LabelmakerHelpersTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "HTTPS origins"):
             create_server(("127.0.0.1", 0), FakePrinter(), ("http://example.com",))
 
-    def test_device_not_found_message_has_mac_recovery_steps(self):
+    def test_device_not_found_message_has_platform_neutral_recovery_steps(self):
         message = friendly_printer_error("Error: Device not found")
 
         self.assertIn("power it on", message.lower())
-        self.assertIn("P-touch Editor", message)
+        self.assertIn("other program", message)
+
+    def test_run_server_opens_the_emitted_url_when_requested(self):
+        class ImmediateTimer:
+            def __init__(self, _delay, callback):
+                self.callback = callback
+
+            def start(self):
+                self.callback()
+
+        class FakeServer:
+            server_port = 10462
+
+            def serve_forever(self):
+                return
+
+            def server_close(self):
+                return
+
+        urls = []
+        with patch("cable_labelmaker.server.threading.Timer", ImmediateTimer), patch(
+            "cable_labelmaker.server.webbrowser.open_new_tab"
+        ) as open_tab:
+            run_server(
+                10462,
+                (),
+                True,
+                printer=FakePrinter(),
+                server_factory=lambda *_args, **_kwargs: FakeServer(),
+                ready_callback=urls.append,
+            )
+
+        self.assertEqual(["http://127.0.0.1:10462"], urls)
+        open_tab.assert_called_once_with("http://127.0.0.1:10462")
 
 
 if __name__ == "__main__":

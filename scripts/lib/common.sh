@@ -94,3 +94,19 @@ wait_for_http() {
   done
   return 1
 }
+
+wait_for_http_body() {
+  local url="$1"
+  local expected_body="$2"
+  local attempts="${3:-20}"
+  local attempt body
+
+  for (( attempt = 1; attempt <= attempts; attempt++ )); do
+    if body="$(curl --fail --silent --connect-timeout 1 --max-time 2 "$url")" &&
+      [[ "$body" == "$expected_body" ]]; then
+      return 0
+    fi
+    sleep 1
+  done
+  return 1
+}

@@ -9,7 +9,6 @@ EnvironmentFile=-%h/.config/cablelabel/environment
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=true
-PrivateTmp=true
 UMask=0077
 
 [Install]

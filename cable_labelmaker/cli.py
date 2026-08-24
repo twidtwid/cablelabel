@@ -181,10 +181,22 @@ def _status(args, printer, printer_lock, stdout, stderr):
 def _preview(args, stdout, stderr):
     try:
         image = render_tape_preview(args.label, args.length)
+    except ValueError as exc:
+        _emit(
+            {"command": "preview", "error": str(exc), "ok": False},
+            str(exc),
+            json_output=args.json,
+            stdout=stdout,
+            stderr=stderr,
+            error=True,
+        )
+        return EXIT_USAGE
+
+    try:
         output = args.output.expanduser().resolve()
         output.parent.mkdir(parents=True, exist_ok=True)
         image.save(output, format="PNG")
-    except (OSError, ValueError, RuntimeError) as exc:
+    except (OSError, ValueError) as exc:
         _emit(
             {"command": "preview", "error": str(exc), "ok": False},
             str(exc),
@@ -261,6 +273,18 @@ def _print(args, printer, printer_lock, stdin, stdout, stderr):
     lock_acquired = False
     try:
         labels = _input_labels(args, stdin)
+    except ValueError as exc:
+        _emit(
+            {"command": "print", "error": str(exc), "ok": False},
+            str(exc),
+            json_output=args.json,
+            stdout=stdout,
+            stderr=stderr,
+            error=True,
+        )
+        return EXIT_USAGE
+
+    try:
         if not printer_lock.acquire(blocking=False):
             return _print_failure(
                 args,
@@ -285,7 +309,7 @@ def _print(args, printer, printer_lock, stdin, stdout, stderr):
                         stdout,
                         stderr,
                     )
-    except (OSError, ValueError, RuntimeError) as exc:
+    except ValueError as exc:
         _emit(
             {"command": "print", "error": str(exc), "ok": False},
             str(exc),
@@ -311,6 +335,19 @@ def _print(args, printer, printer_lock, stdin, stdout, stderr):
 
 
 def _serve(args, printer, server_factory, stdout, stderr):
+    ready_emitted = False
+
+    def report_ready(url):
+        nonlocal ready_emitted
+        _emit(
+            {"command": "serve", "ok": True, "url": url},
+            f"Cable Labelmaker is available at {url}",
+            json_output=args.json,
+            stdout=stdout,
+            stderr=stderr,
+        )
+        ready_emitted = True
+
     try:
         port = args.port if args.port is not None else port_from_environment()
         origins = (
@@ -329,15 +366,12 @@ def _serve(args, printer, server_factory, stdout, stderr):
             open_browser,
             printer=printer,
             server_factory=server_factory,
-            ready_callback=lambda url: _emit(
-                {"command": "serve", "ok": True, "url": url},
-                f"Cable Labelmaker is available at {url}",
-                json_output=args.json,
-                stdout=stdout,
-                stderr=stderr,
-            ),
+            ready_callback=report_ready,
         )
     except ValueError as exc:
+        if ready_emitted:
+            print(f"Cable Labelmaker stopped: {exc}", file=stderr, flush=True)
+            return EXIT_ERROR
         _emit(
             {"command": "serve", "error": str(exc), "ok": False},
             str(exc),
@@ -348,6 +382,9 @@ def _serve(args, printer, server_factory, stdout, stderr):
         )
         return EXIT_USAGE
     except OSError as exc:
+        if ready_emitted:
+            print(f"Cable Labelmaker stopped: {exc}", file=stderr, flush=True)
+            return EXIT_ERROR
         _emit(
             {"command": "serve", "error": str(exc), "ok": False},
             str(exc),
@@ -357,6 +394,15 @@ def _serve(args, printer, server_factory, stdout, stderr):
             error=True,
         )
         return EXIT_ERROR
+    except Exception:
+        if ready_emitted:
+            print(
+                "Cable Labelmaker stopped after startup because of an unexpected error",
+                file=stderr,
+                flush=True,
+            )
+            return EXIT_ERROR
+        raise
     return EXIT_OK
 
 
@@ -376,6 +422,25 @@ def _json_discovery(arguments, parser, stdout, stderr):
     version_index = (
         option_arguments.index("--version") if "--version" in option_arguments else None
     )
+    discovery_indices = [
+        index
+        for index in (
+            version_index,
+            *(
+                option_arguments.index(flag)
+                for flag in ("--help", "-h")
+                if flag in option_arguments
+            ),
+        )
+        if index is not None
+    ]
+    if command_index is None and discovery_indices:
+        first_discovery = min(discovery_indices)
+        if any(
+            not argument.startswith("-")
+            for argument in option_arguments[:first_discovery]
+        ):
+            return None
     if version_index is not None and (
         command_index is None or version_index < command_index
     ):

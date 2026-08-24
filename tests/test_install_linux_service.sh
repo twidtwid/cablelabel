@@ -33,6 +33,13 @@ EOF
 
 cat >"$fake_bin/systemctl" <<'EOF'
 #!/usr/bin/env bash
+if [[ "$*" == "--user is-active --quiet cablelabel.service" ]]; then
+  exit 0
+fi
+if [[ "$*" == "--user restart cablelabel.service" && -n "${TEST_FAIL_RESTART_ONCE:-}" && ! -e "$TEST_FAIL_RESTART_ONCE" ]]; then
+  : >"$TEST_FAIL_RESTART_ONCE"
+  exit 1
+fi
 printf '%s\n' "$*" >>"$TEST_SYSTEMCTL_LOG"
 EOF
 
@@ -51,7 +58,7 @@ EOF
 
 cat >"$fake_bin/curl" <<'EOF'
 #!/usr/bin/env bash
-exit 0
+printf '{"name": "cablelabel", "version": "%s"}' "$TEST_HEALTH_VERSION"
 EOF
 
 chmod +x "$fake_bin"/*
@@ -82,6 +89,9 @@ assert_service_sequence() {
 
 run_installer() {
   local bundle="$1"
+  local version
+
+  version="$(tr -d '[:space:]' <"$bundle/_internal/VERSION")"
 
   : >"$systemctl_log"
   HOME="$test_home" \
@@ -90,6 +100,7 @@ run_installer() {
     TEST_SYSTEMCTL_LOG="$systemctl_log" \
     TEST_SUDO_LOG="$sudo_log" \
     TEST_INSTALLED_UDEV_RULE="$installed_udev_rule" \
+    TEST_HEALTH_VERSION="$version" \
     "$project_dir/scripts/install-linux-service.sh" --bundle "$bundle"
 }
 
@@ -114,6 +125,28 @@ assert_service_sequence "upgrade"
   "$test_home/.local/opt/cablelabel/0.2.1" ]]
 [[ -x "$test_home/.local/bin/cablelabel" ]] || {
   echo "Installed cablelabel CLI is not executable after upgrade" >&2
+  exit 1
+}
+
+failed_bundle="$test_root/bundle-0.2.2"
+restart_marker="$test_root/restart-failed"
+make_bundle "$failed_bundle" 0.2.2
+if HOME="$test_home" \
+  PATH="$fake_bin:/usr/bin:/bin" \
+  TEST_SERVICE_USER="cablelabel_tester" \
+  TEST_SYSTEMCTL_LOG="$systemctl_log" \
+  TEST_SUDO_LOG="$sudo_log" \
+  TEST_INSTALLED_UDEV_RULE="$installed_udev_rule" \
+  TEST_HEALTH_VERSION="0.2.2" \
+  TEST_FAIL_RESTART_ONCE="$restart_marker" \
+  "$project_dir/scripts/install-linux-service.sh" --bundle "$failed_bundle" \
+  >"$test_root/failed-upgrade.out" 2>&1; then
+  echo "Installer accepted a failed service restart" >&2
+  exit 1
+fi
+[[ "$(readlink "$test_home/.local/opt/cablelabel/current")" == \
+  "$test_home/.local/opt/cablelabel/0.2.1" ]] || {
+  echo "Installer did not restore the previous version after failure" >&2
   exit 1
 }
 

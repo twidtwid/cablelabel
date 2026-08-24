@@ -66,11 +66,11 @@ PRINTER_LOCK = PrinterLock()
 def friendly_printer_error(detail: str) -> str:
     if "device not found" in detail.lower():
         return (
-            "PT-D600 not found. Connect its USB cable, power it on, and quit "
-            "P-touch Editor before trying again."
+            "PT-D600 not found. Connect its USB cable, power it on, and close "
+            "any other program using it before trying again."
         )
     if "busy" in detail.lower() or "access" in detail.lower():
-        return "The PT-D600 is busy. Quit P-touch Editor, then try again."
+        return "The PT-D600 is busy. Close any other program using it, then try again."
     return detail.strip()
 
 

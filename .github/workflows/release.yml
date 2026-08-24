@@ -88,10 +88,20 @@ jobs:
 
       - name: Package macOS application
         if: runner.os == 'macOS'
-        run: >-
-          ditto -c -k --sequesterRsrc --keepParent
-          "dist/Cable Labelmaker.app"
-          "dist/Cable-Labelmaker-${GITHUB_REF_NAME}-macOS-arm64.zip"
+        shell: bash
+        run: |
+          release_name="Cable-Labelmaker-${GITHUB_REF_NAME}-macOS-arm64"
+          release_root="dist/$release_name"
+          mkdir -p "$release_root/dist" "$release_root/scripts/lib" "$release_root/macos"
+          ditto "dist/Cable Labelmaker.app" "$release_root/dist/Cable Labelmaker.app"
+          cp scripts/install-macos-service.sh scripts/verify-macos-app.sh \
+            scripts/verify-macos-release.sh "$release_root/scripts/"
+          cp scripts/lib/common.sh "$release_root/scripts/lib/"
+          cp macos/io.github.twidtwid.cablelabel.plist "$release_root/macos/"
+          cp README.md LICENSE THIRD_PARTY_NOTICES.md "$release_root/"
+          ditto -c -k --sequesterRsrc --keepParent \
+            "$release_root" "dist/${release_name}.zip"
+          scripts/verify-macos-release.sh "dist/${release_name}.zip"
 
       - name: Build Linux application
         if: runner.os == 'Linux'

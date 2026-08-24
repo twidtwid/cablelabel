@@ -13,7 +13,7 @@ check-common: test
 	bash tests/test_verify_linux_service.sh
 
 check-macos: check-common
-	zsh -n scripts/build-mac-app.sh scripts/install-macos-service.sh scripts/verify-macos-app.sh
+	zsh -n scripts/build-mac-app.sh scripts/install-macos-service.sh scripts/verify-macos-app.sh scripts/verify-macos-release.sh
 	zsh tests/test_install_common.sh
 	plutil -lint macos/io.github.twidtwid.cablelabel.plist
 

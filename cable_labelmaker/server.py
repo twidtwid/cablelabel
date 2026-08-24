@@ -12,6 +12,7 @@ from pathlib import Path
 from socketserver import TCPServer
 from urllib.parse import urlparse
 
+from . import __version__
 from .limits import MAX_BATCH_SIZE, MAX_LENGTH_MM, MIN_LENGTH_MM
 from .printer import (
     PRINTER_LOCK,
@@ -156,6 +157,9 @@ class LabelmakerHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = urlparse(self.path).path
+        if path == "/api/health":
+            self._json(200, {"name": "cablelabel", "version": __version__})
+            return
         if path == "/":
             self._send(200, "text/html; charset=utf-8", (WEB_ROOT / "index.html").read_bytes())
             return

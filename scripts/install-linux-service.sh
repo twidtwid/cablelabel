@@ -98,6 +98,33 @@ service_destination="$service_dir/cablelabel.service"
 environment_file="$config_dir/environment"
 udev_rule_template="$project_dir/linux/70-cablelabel-pt-d600.rules"
 rendered_udev_rule="$config_dir/70-cablelabel-pt-d600.rules"
+previous_current=""
+rollback_root="$(mktemp -d)"
+install_succeeded=0
+
+if [[ -L "$app_root/current" ]]; then
+  previous_current="$(readlink "$app_root/current")"
+fi
+[[ -f "$service_destination" ]] && cp -p "$service_destination" "$rollback_root/service"
+[[ -f "$environment_file" ]] && cp -p "$environment_file" "$rollback_root/environment"
+
+finish_install() {
+  local exit_code=$?
+  if (( ! install_succeeded )) && [[ -n "$previous_current" ]]; then
+    ln -sfn "$previous_current" "$app_root/current"
+    [[ -f "$rollback_root/service" ]] && cp -p "$rollback_root/service" "$service_destination"
+    [[ -f "$rollback_root/environment" ]] && cp -p "$rollback_root/environment" "$environment_file"
+    systemctl --user daemon-reload >/dev/null 2>&1 || true
+    systemctl --user restart cablelabel.service >/dev/null 2>&1 || true
+  fi
+  if command -v trash >/dev/null; then
+    trash "$rollback_root"
+  else
+    rm -rf "$rollback_root"
+  fi
+  return "$exit_code"
+}
+trap finish_install EXIT
 
 install -d "$version_destination" "$user_bin" "$service_dir" "$config_dir"
 cp -a "$bundle_source/." "$version_destination/"
@@ -140,15 +167,19 @@ systemctl --user daemon-reload
 systemctl --user enable cablelabel.service
 systemctl --user restart cablelabel.service
 
-health_url="http://127.0.0.1:$port/"
-if ! wait_for_http "$health_url"; then
+app_url="http://127.0.0.1:$port/"
+health_url="${app_url}api/health"
+expected_health="{\"name\": \"cablelabel\", \"version\": \"$app_version\"}"
+if ! wait_for_http_body "$health_url" "$expected_health" ||
+  ! systemctl --user is-active --quiet cablelabel.service; then
   echo "Cable Labelmaker did not become healthy at $health_url" >&2
   systemctl --user status --no-pager cablelabel.service >&2 || true
   journalctl --user-unit cablelabel.service -n 40 --no-pager >&2 || true
   exit 1
 fi
 
-echo "Installed Cable Labelmaker $app_version at $health_url"
+install_succeeded=1
+echo "Installed Cable Labelmaker $app_version at $app_url"
 if [[ -n "$trusted_origins" ]]; then
   echo "Trusted remote origin(s): $trusted_origins"
 else

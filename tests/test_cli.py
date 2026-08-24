@@ -154,6 +154,20 @@ class CliTests(unittest.TestCase):
             self.assertFalse(output.exists())
             self.assertIn("at most three", json.loads(stdout)["error"])
 
+    def test_preview_renderer_failure_is_an_internal_error(self):
+        with patch(
+            "cable_labelmaker.cli.render_tape_preview",
+            side_effect=RuntimeError("font unavailable"),
+        ):
+            code, stdout, stderr = self.run_cli(
+                ["--json", "preview", "TEST"]
+            )
+
+        self.assertEqual(cli.EXIT_ERROR, code)
+        self.assertEqual("", stderr)
+        self.assertEqual(1, len(stdout.splitlines()))
+        self.assertEqual("preview", json.loads(stdout)["command"])
+
     def test_argument_errors_are_json_when_requested(self):
         code, stdout, stderr = self.run_cli(
             ["--json", "preview", "TEST", "--length", "200"]
@@ -186,6 +200,17 @@ class CliTests(unittest.TestCase):
         self.assertEqual("version", payload["command"])
         self.assertTrue(payload["version"])
         self.assertEqual(1, len(stdout.splitlines()))
+
+    def test_invalid_command_is_not_hidden_by_json_discovery(self):
+        for flag in ("--help", "--version"):
+            with self.subTest(flag=flag):
+                code, stdout, stderr = self.run_cli(
+                    ["--json", "not-a-command", flag]
+                )
+
+                self.assertEqual(cli.EXIT_USAGE, code)
+                self.assertEqual("", stderr)
+                self.assertEqual("arguments", json.loads(stdout)["command"])
 
     def test_print_sends_every_label_and_copy(self):
         printer = FakePrinter()
@@ -280,6 +305,22 @@ class CliTests(unittest.TestCase):
         self.assertEqual("WAIT FOR PRINTER", payload["failed_label"])
         self.assertIn("busy", payload["error"].lower())
 
+    def test_print_renderer_failure_is_an_internal_error_and_releases_lock(self):
+        with patch(
+            "cable_labelmaker.cli.render_many",
+            side_effect=RuntimeError("font unavailable"),
+        ):
+            code, stdout, stderr = self.run_cli(
+                ["--json", "print", "TEST"]
+            )
+
+        self.assertEqual(cli.EXIT_ERROR, code)
+        self.assertEqual("", stderr)
+        self.assertEqual(1, len(stdout.splitlines()))
+        self.assertEqual("print", json.loads(stdout)["command"])
+        self.assertTrue(self.printer_lock.acquire(blocking=False))
+        self.printer_lock.release()
+
     def test_print_can_read_newline_delimited_labels_from_stdin(self):
         printer = FakePrinter()
 
@@ -372,6 +413,21 @@ class CliTests(unittest.TestCase):
             },
             json.loads(stdout),
         )
+
+    def test_json_serve_runtime_failure_keeps_one_stdout_object(self):
+        class FailingServer(FakeServer):
+            def serve_forever(self):
+                raise OSError("server loop failed")
+
+        code, stdout, stderr = self._run_serve_with_factory(
+            ["--json", "serve", "--port", "10462", "--no-browser"],
+            lambda address, printer=None, trusted_origins=(): FailingServer(address),
+        )
+
+        self.assertEqual(cli.EXIT_ERROR, code)
+        self.assertEqual(1, len(stdout.splitlines()))
+        self.assertTrue(json.loads(stdout)["ok"])
+        self.assertIn("server loop failed", stderr)
 
     def _run_serve_with_factory(self, arguments, server_factory):
         stdout = io.StringIO()

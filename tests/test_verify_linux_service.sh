@@ -54,6 +54,21 @@ PATH="$fake_bin:/usr/bin:/bin" \
 
 [[ "$(wc -l <"$analyze_log" | tr -d '[:space:]')" == "1" ]]
 
+private_tmp_unit="$test_root/private-tmp.service"
+awk '
+  /^UMask=/ { print "PrivateTmp=true" }
+  { print }
+' "$project_dir/linux/cablelabel.service" >"$private_tmp_unit"
+
+if PATH="$fake_bin:/usr/bin:/bin" \
+  TEST_ANALYZE_LOG="$analyze_log" \
+  "$project_dir/scripts/verify-linux-service.sh" "$private_tmp_unit" \
+  >"$test_root/private-tmp.out" 2>&1; then
+  echo "Verifier accepted a service that isolates the shared printer lock" >&2
+  exit 1
+fi
+[[ "$(wc -l <"$analyze_log" | tr -d '[:space:]')" == "1" ]]
+
 wrong_unit="$test_root/wrong.service"
 sed 's|^ExecStart=.*|ExecStart=%h/.local/bin/cablelabel|' \
   "$project_dir/linux/cablelabel.service" >"$wrong_unit"

@@ -1,5 +1,7 @@
 # Cable Labelmaker
 
+![Cable Labelmaker: print-accurate wraparound labels for macOS and Linux](docs/social-preview.png)
+
 A small local app for designing and printing wraparound cable labels on 24 mm
 Brother laminated tape. It renders a print-accurate preview and sends labels
 directly to a Brother PT-D600 over USB.
@@ -15,6 +17,25 @@ directly to a Brother PT-D600 over USB.
 
 The default label is 48 mm long. This leaves enough overlap for a durable wrap
 on typical network cables.
+
+## Install a release
+
+Download the archive for your platform from the
+[latest GitHub release](https://github.com/twidtwid/cablelabel/releases/latest),
+extract it, and run the included installer from the extracted directory:
+
+```sh
+# macOS
+scripts/install-macos-service.sh
+
+# Linux
+scripts/install-linux-service.sh
+```
+
+Each archive is self-contained. The installer exposes `cablelabel` at
+`~/.local/bin/cablelabel` and starts the local web app at
+<http://127.0.0.1:9462/>. The macOS app is locally signed but not notarized, so
+the first launch can require Control-click, **Open**, and confirmation.
 
 ## Build and install on macOS
 
@@ -119,15 +140,18 @@ Quote labels containing spaces, `|`, or other shell metacharacters. Use
 
 ## For agents
 
-Install from a checked-out release exactly as a human would:
+Install from an extracted GitHub release exactly as a human would:
 
 ```sh
 # macOS
-scripts/build-mac-app.sh && scripts/install-macos-service.sh
+scripts/install-macos-service.sh
 
 # Linux
-scripts/build-linux-app.sh && scripts/install-linux-service.sh
+scripts/install-linux-service.sh
 ```
+
+When working from a source checkout instead, build first with
+`scripts/build-mac-app.sh` or `scripts/build-linux-app.sh`.
 
 For source-tree automation without installing, replace `cablelabel` in the
 examples below with:
