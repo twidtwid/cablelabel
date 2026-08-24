@@ -8,6 +8,14 @@ script_name="${0:t}"
 app_source="$project_dir/dist/Cable Labelmaker.app"
 app_destination="/Applications/Cable Labelmaker.app"
 service_label="io.github.twidtwid.cablelabel"
+legacy_service_label="com.todd.cable-labelmaker"
+installed_executable="$app_destination/Contents/MacOS/Cable Labelmaker"
+launch_agents="$HOME/Library/LaunchAgents"
+logs="$HOME/Library/Logs"
+launch_agent="$launch_agents/$service_label.plist"
+legacy_launch_agent="$launch_agents/$legacy_service_label.plist"
+template="$project_dir/macos/$service_label.plist"
+domain="gui/$(id -u)"
 trusted_origins=""
 port="9462"
 
@@ -56,6 +64,29 @@ if [[ ! -d "$app_source" ]]; then
   exit 1
 fi
 
+/bin/launchctl bootout "$domain/$service_label" 2>/dev/null || true
+/bin/launchctl bootout "$domain/$legacy_service_label" 2>/dev/null || true
+/bin/launchctl disable "$domain/$legacy_service_label" 2>/dev/null || true
+if [[ -e "$legacy_launch_agent" || -L "$legacy_launch_agent" ]]; then
+  legacy_archive="$launch_agents/Archived"
+  mkdir -p "$legacy_archive"
+  /bin/mv "$legacy_launch_agent" \
+    "$legacy_archive/$legacy_service_label.plist.$(/bin/date +%Y%m%d-%H%M%S)"
+fi
+if /usr/bin/pgrep -f -x "$installed_executable" >/dev/null 2>&1; then
+  /usr/bin/pkill -TERM -f -x "$installed_executable"
+  for _attempt in {1..50}; do
+    if ! /usr/bin/pgrep -f -x "$installed_executable" >/dev/null 2>&1; then
+      break
+    fi
+    /bin/sleep 0.1
+  done
+  if /usr/bin/pgrep -f -x "$installed_executable" >/dev/null 2>&1; then
+    echo "The previous Cable Labelmaker process did not stop." >&2
+    exit 1
+  fi
+fi
+
 if [[ "$app_source" != "$app_destination" ]]; then
   /usr/bin/ditto "$app_source" "$app_destination"
 fi
@@ -63,12 +94,6 @@ fi
 user_bin="$HOME/.local/bin"
 mkdir -p "$user_bin"
 ln -sfn "$app_destination/Contents/MacOS/Cable Labelmaker" "$user_bin/cablelabel"
-
-launch_agents="$HOME/Library/LaunchAgents"
-logs="$HOME/Library/Logs"
-launch_agent="$launch_agents/$service_label.plist"
-template="$project_dir/macos/$service_label.plist"
-domain="gui/$(id -u)"
 
 mkdir -p "$launch_agents" "$logs"
 /usr/bin/ditto "$template" "$launch_agent"
@@ -80,12 +105,15 @@ mkdir -p "$launch_agents" "$logs"
 /usr/bin/plutil -replace StandardErrorPath -string "$logs/cablelabel.err.log" "$launch_agent"
 /usr/bin/plutil -lint "$launch_agent" >/dev/null
 
-/bin/launchctl bootout "$domain/$service_label" 2>/dev/null || true
 /bin/launchctl enable "$domain/$service_label"
 /bin/launchctl bootstrap "$domain" "$launch_agent"
 
 health_url="http://127.0.0.1:$port/"
-if ! wait_for_http "$health_url"; then
+if ! wait_for_http "$health_url" ||
+  ! /bin/launchctl print "$domain/$service_label" 2>/dev/null | /usr/bin/awk '
+    $1 == "state" && $2 == "=" && $3 == "running" { found = 1 }
+    END { exit !found }
+  '; then
   echo "Cable Labelmaker did not become healthy at $health_url" >&2
   /usr/bin/curl --fail --silent --show-error --connect-timeout 1 --max-time 2 \
     "$health_url" >/dev/null || true

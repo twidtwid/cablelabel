@@ -8,6 +8,7 @@ Notable changes are listed newest first.
   batch printing, and the local web server.
 - Added stable JSON results and documented exit codes for agentic use.
 - Added `~/.local/bin/cablelabel` during macOS and Linux installation.
+- macOS upgrades retire the pre-release LaunchAgent before starting the current service.
 
 ## 0.2.0 — 2026-08-23
 
