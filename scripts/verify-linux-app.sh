@@ -29,6 +29,8 @@ ptouch_executable="$bundle_path/_internal/bin/ptouch"
 require_file "$bundle_path/_internal/web/index.html"
 require_file "$bundle_path/_internal/THIRD_PARTY_NOTICES.md"
 require_file "$bundle_path/_internal/licenses/ptouch-rs-GPL-3.0.txt"
+require_file "$bundle_path/_internal/fonts/RobotoCondensed-Bold.ttf"
+require_file "$bundle_path/_internal/licenses/Roboto-Apache-2.0.txt"
 require_file "$bundle_path/_internal/VERSION"
 
 actual_version="$(tr -d '[:space:]' <"$bundle_path/_internal/VERSION")"

@@ -15,3 +15,16 @@
 The bundled executable implements direct USB communication with Brother
 P-touch printers. The Cable Labelmaker renderer and local interface are
 separate original components.
+
+## Roboto Condensed 2.138
+
+- Project: <https://github.com/googlefonts/roboto>
+- Source tag: <https://github.com/googlefonts/roboto/tree/v2.138>
+- License: Apache-2.0
+- Linux bundled font: `RobotoCondensed-Bold.ttf`
+- Font SHA-256: `2d06877e39956ec96dbafb0d152644e8b2245d647e58c7bb7c91bb2b15defa93`
+- License SHA-256: `c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4`
+- Bundled license: `licenses/Roboto-Apache-2.0.txt`
+
+Linux bundles include Roboto Condensed Bold so label rendering does not
+depend on fonts installed by the operating system.

@@ -7,8 +7,9 @@ test:
 	$(PYTHON) -m unittest discover -s tests -v
 
 check-common: test
-	bash -n scripts/build-linux-app.sh scripts/install-linux-service.sh scripts/verify-linux-app.sh scripts/lib/common.sh tests/test_install_common.sh
+	bash -n scripts/build-linux-app.sh scripts/install-linux-service.sh scripts/verify-linux-app.sh scripts/verify-linux-release.sh scripts/lib/common.sh tests/test_install_common.sh tests/test_install_linux_service.sh
 	bash tests/test_install_common.sh
+	bash tests/test_install_linux_service.sh
 
 check-macos: check-common
 	zsh -n scripts/build-mac-app.sh scripts/install-macos-service.sh scripts/verify-macos-app.sh
@@ -16,7 +17,7 @@ check-macos: check-common
 	plutil -lint macos/io.github.twidtwid.cablelabel.plist
 
 check-linux: check-common
-	shellcheck scripts/build-linux-app.sh scripts/install-linux-service.sh scripts/verify-linux-app.sh scripts/lib/common.sh tests/test_install_common.sh
+	shellcheck scripts/build-linux-app.sh scripts/install-linux-service.sh scripts/verify-linux-app.sh scripts/verify-linux-release.sh scripts/lib/common.sh tests/test_install_common.sh tests/test_install_linux_service.sh
 	systemd-analyze --user verify linux/cablelabel.service
 
 ifeq ($(UNAME_S),Darwin)

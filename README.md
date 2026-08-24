@@ -55,10 +55,14 @@ scripts/install-linux-service.sh
 
 The arm64 build also requires a Rust toolchain because ptouch-rs does not
 publish a Linux arm64 binary. The build compiles its pinned `v0.5.0` source.
+Linux bundles include a pinned Roboto Condensed Bold font and its Apache 2.0
+license, so previews and prints do not depend on system-installed fonts.
 
 The installer places versioned bundles under `~/.local/opt/cablelabel`, enables
 `cablelabel.service`, and checks <http://127.0.0.1:9462/> before reporting
-success. It uses `sudo` only to install and reload the PT-D600 udev rule.
+success. It installs the PT-D600 udev rule with the service user as its stable
+device owner, while retaining desktop-session access. It uses `sudo` only to
+install and reload that rule.
 
 For a headless machine that must start the user service before login, enable
 lingering once:

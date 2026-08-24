@@ -16,6 +16,20 @@ if validate_app_version version-two; then
   exit 1
 fi
 
+for value in cablelabel cable-label cable_label cable.label 'service$'; do
+  validate_service_username "$value" || {
+    echo "Expected valid service username: $value" >&2
+    exit 1
+  }
+done
+
+for value in "" "-service" 'bad"user' "bad user" "bad/user"; do
+  if validate_service_username "$value"; then
+    echo "Expected invalid service username: $value" >&2
+    exit 1
+  fi
+done
+
 for value in 1 9462 65535 00080; do
   validate_port "$value" || {
     echo "Expected valid port: $value" >&2

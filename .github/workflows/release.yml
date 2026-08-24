@@ -103,12 +103,14 @@ jobs:
         run: |
           release_name="Cable-Labelmaker-${GITHUB_REF_NAME}-linux-${{ matrix.archive_arch }}"
           release_root="dist/$release_name"
-          mkdir -p "$release_root/scripts"
-          cp -a dist/cablelabel "$release_root/"
+          mkdir -p "$release_root/dist" "$release_root/scripts/lib"
+          cp -a dist/cablelabel "$release_root/dist/"
           cp scripts/install-linux-service.sh "$release_root/scripts/"
+          cp scripts/lib/common.sh "$release_root/scripts/lib/"
           cp -a linux "$release_root/"
           cp README.md LICENSE THIRD_PARTY_NOTICES.md "$release_root/"
           tar -C dist -czf "dist/${release_name}.tar.gz" "$release_name"
+          scripts/verify-linux-release.sh "dist/${release_name}.tar.gz"
 
       - name: Upload release archive
         uses: actions/upload-artifact@v7.0.1

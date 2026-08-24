@@ -45,7 +45,7 @@ if [[ -z "$uv_bin" ]]; then
   exit 1
 fi
 
-mkdir -p bin build/licenses
+mkdir -p bin build/fonts build/licenses
 case "$(uname -m)" in
   x86_64)
     download_verified \
@@ -71,6 +71,19 @@ download_verified \
   "$ptouch_license" \
   "ptouch license"
 
+font_path="build/fonts/RobotoCondensed-Bold.ttf"
+font_license="build/licenses/Roboto-Apache-2.0.txt"
+download_verified \
+  "https://raw.githubusercontent.com/googlefonts/roboto/v2.138/src/hinted/RobotoCondensed-Bold.ttf" \
+  "2d06877e39956ec96dbafb0d152644e8b2245d647e58c7bb7c91bb2b15defa93" \
+  "$font_path" \
+  "Roboto Condensed Bold font"
+download_verified \
+  "https://raw.githubusercontent.com/googlefonts/roboto/v2.138/LICENSE" \
+  "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4" \
+  "$font_license" \
+  "Roboto license"
+
 if [[ ! -x .venv/bin/python ]]; then
   "$uv_bin" venv --python 3.12 .venv
 fi
@@ -91,6 +104,8 @@ printf '%s\n' "$app_version" >build/VERSION
   --add-data "web:web" \
   --add-data "THIRD_PARTY_NOTICES.md:." \
   --add-data "${ptouch_license}:licenses" \
+  --add-data "${font_path}:fonts" \
+  --add-data "${font_license}:licenses" \
   --add-data "build/VERSION:." \
   --collect-all PIL \
   main.py

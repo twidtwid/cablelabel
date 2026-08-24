@@ -9,9 +9,10 @@ bundle_source="$project_dir/dist/cablelabel"
 trusted_origins=""
 port="9462"
 install_udev=1
+verify_only=0
 
 usage() {
-  echo "Usage: $script_name [--bundle PATH] [--port PORT] [--trusted-origin HTTPS_ORIGIN]... [--skip-udev]"
+  echo "Usage: $script_name [--bundle PATH] [--port PORT] [--trusted-origin HTTPS_ORIGIN]... [--skip-udev] [--verify-only]"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -43,6 +44,10 @@ while [[ $# -gt 0 ]]; do
       install_udev=0
       shift
       ;;
+    --verify-only)
+      verify_only=1
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -54,14 +59,6 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-[[ "$(uname -s)" == "Linux" ]] || {
-  echo "This script must run on Linux." >&2
-  exit 1
-}
-command -v systemctl >/dev/null || {
-  echo "systemd is required for persistent installation." >&2
-  exit 1
-}
 [[ -x "$bundle_source/cablelabel" ]] || {
   echo "Linux bundle not found at $bundle_source. Run scripts/build-linux-app.sh first." >&2
   exit 1
@@ -73,8 +70,22 @@ version_file="$bundle_source/_internal/VERSION"
   exit 1
 }
 app_version="$(tr -d '[:space:]' <"$version_file")"
-[[ "$app_version" =~ ^[0-9]+([.][0-9]+){1,2}$ ]] || {
+validate_app_version "$app_version" || {
   echo "Bundle version is invalid: $app_version" >&2
+  exit 1
+}
+
+if (( verify_only )); then
+  echo "Verified Linux installer bundle: $bundle_source (version $app_version)"
+  exit 0
+fi
+
+[[ "$(uname -s)" == "Linux" ]] || {
+  echo "This script must run on Linux." >&2
+  exit 1
+}
+command -v systemctl >/dev/null || {
+  echo "systemd is required for persistent installation." >&2
   exit 1
 }
 
@@ -84,6 +95,8 @@ service_dir="$HOME/.config/systemd/user"
 config_dir="$HOME/.config/cablelabel"
 service_destination="$service_dir/cablelabel.service"
 environment_file="$config_dir/environment"
+udev_rule_template="$project_dir/linux/70-cablelabel-pt-d600.rules"
+rendered_udev_rule="$config_dir/70-cablelabel-pt-d600.rules"
 
 install -d "$version_destination" "$service_dir" "$config_dir"
 cp -a "$bundle_source/." "$version_destination/"
@@ -105,7 +118,16 @@ if (( install_udev )); then
     echo "sudo is required to install the PT-D600 udev rule. Use --skip-udev only when permissions are already configured." >&2
     exit 1
   }
-  sudo install -Dm644 "$project_dir/linux/70-cablelabel-pt-d600.rules" \
+  service_user="$(id -un)"
+  validate_service_username "$service_user" || {
+    echo "Cannot install the PT-D600 udev rule for invalid service user: $service_user" >&2
+    exit 1
+  }
+  udev_rule="$(<"$udev_rule_template")"
+  udev_rule="${udev_rule//@CABLELABEL_USER@/$service_user}"
+  printf '%s\n' "$udev_rule" >"$rendered_udev_rule"
+  chmod 644 "$rendered_udev_rule"
+  sudo install -Dm644 "$rendered_udev_rule" \
     /etc/udev/rules.d/70-cablelabel-pt-d600.rules
   sudo udevadm control --reload-rules
   sudo udevadm trigger --subsystem-match=usb --attr-match=idVendor=04f9 \
@@ -113,7 +135,8 @@ if (( install_udev )); then
 fi
 
 systemctl --user daemon-reload
-systemctl --user enable --now cablelabel.service
+systemctl --user enable cablelabel.service
+systemctl --user restart cablelabel.service
 
 health_url="http://127.0.0.1:$port/"
 if ! wait_for_http "$health_url"; then

@@ -37,6 +37,12 @@ validate_app_version() {
   [[ "$1" =~ ^[0-9]+([.][0-9]+){1,2}$ ]]
 }
 
+validate_service_username() {
+  local value="$1"
+
+  [[ ${#value} -le 256 && "$value" =~ ^[A-Za-z_][A-Za-z0-9_.-]*[$]?$ ]]
+}
+
 validate_port() {
   local value="$1"
   local port_number
