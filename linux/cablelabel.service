@@ -1,0 +1,16 @@
+[Unit]
+Description=Cable Labelmaker
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/opt/cablelabel/current/cablelabel
+EnvironmentFile=-%h/.config/cablelabel/environment
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+UMask=0077
+
+[Install]
+WantedBy=default.target
