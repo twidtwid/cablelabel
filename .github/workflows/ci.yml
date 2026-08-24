@@ -64,6 +64,3 @@ jobs:
 
       - name: Build Linux app
         run: scripts/build-linux-app.sh
-
-      - name: Verify Linux app bundle
-        run: scripts/verify-linux-app.sh

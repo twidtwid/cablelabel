@@ -2,6 +2,8 @@
 set -euo pipefail
 
 project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=scripts/lib/common.sh
+source "$project_dir/scripts/lib/common.sh"
 script_name="$(basename "$0")"
 bundle_source="$project_dir/dist/cablelabel"
 trusted_origins=""
@@ -10,39 +12,6 @@ install_udev=1
 
 usage() {
   echo "Usage: $script_name [--bundle PATH] [--port PORT] [--trusted-origin HTTPS_ORIGIN]... [--skip-udev]"
-}
-
-validate_port() {
-  local value="$1"
-  [[ "$value" =~ ^[0-9]+$ ]] || return 1
-  (( 10#$value >= 1 && 10#$value <= 65535 ))
-}
-
-validate_trusted_origin() {
-  local origin="$1"
-  local authority host origin_port label
-  local -a labels
-
-  [[ "$origin" == https://* ]] || return 1
-  authority="${origin#https://}"
-  authority="${authority%/}"
-  [[ -n "$authority" ]] || return 1
-  [[ "$authority" != */* && "$authority" != *\?* && "$authority" != *\#* ]] || return 1
-  [[ "$authority" != *@* && "$authority" != *[[:space:]]* ]] || return 1
-
-  if [[ "$authority" == *:* ]]; then
-    host="${authority%:*}"
-    origin_port="${authority##*:}"
-    validate_port "$origin_port" || return 1
-  else
-    host="$authority"
-  fi
-
-  [[ -n "$host" && "$host" != .* && "$host" != *. && "$host" != *..* ]] || return 1
-  IFS='.' read -r -a labels <<<"$host"
-  for label in "${labels[@]}"; do
-    [[ "$label" =~ ^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?$ ]] || return 1
-  done
 }
 
 while [[ $# -gt 0 ]]; do
@@ -139,22 +108,15 @@ if (( install_udev )); then
   sudo install -Dm644 "$project_dir/linux/70-cablelabel-pt-d600.rules" \
     /etc/udev/rules.d/70-cablelabel-pt-d600.rules
   sudo udevadm control --reload-rules
-  sudo udevadm trigger --subsystem-match=usb --attr-match=idVendor=04f9
+  sudo udevadm trigger --subsystem-match=usb --attr-match=idVendor=04f9 \
+    --attr-match=idProduct=2074
 fi
 
 systemctl --user daemon-reload
 systemctl --user enable --now cablelabel.service
 
 health_url="http://127.0.0.1:$port/"
-healthy=0
-for _attempt in {1..20}; do
-  if curl --fail --silent --connect-timeout 1 --max-time 2 "$health_url" >/dev/null; then
-    healthy=1
-    break
-  fi
-  sleep 1
-done
-if (( ! healthy )); then
+if ! wait_for_http "$health_url"; then
   echo "Cable Labelmaker did not become healthy at $health_url" >&2
   systemctl --user status --no-pager cablelabel.service >&2 || true
   journalctl --user-unit cablelabel.service -n 40 --no-pager >&2 || true

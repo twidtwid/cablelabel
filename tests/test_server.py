@@ -271,18 +271,10 @@ class LabelmakerHelpersTests(unittest.TestCase):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 _runtime_config_from_environment({"CABLELABEL_PORT": value})
 
-    def test_browser_opening_defaults_on_and_accepts_boolean_values(self):
+    def test_browser_opening_defaults_on_and_accepts_binary_values(self):
         self.assertTrue(_open_browser_from_environment({}))
-        for value in ("0", "false", "no"):
-            with self.subTest(value=value):
-                self.assertFalse(
-                    _open_browser_from_environment({"CABLELABEL_OPEN_BROWSER": value})
-                )
-        for value in ("1", "true", "yes"):
-            with self.subTest(value=value):
-                self.assertTrue(
-                    _open_browser_from_environment({"CABLELABEL_OPEN_BROWSER": value})
-                )
+        self.assertFalse(_open_browser_from_environment({"CABLELABEL_OPEN_BROWSER": "0"}))
+        self.assertTrue(_open_browser_from_environment({"CABLELABEL_OPEN_BROWSER": "1"}))
 
     def test_browser_opening_rejects_invalid_value(self):
         with self.assertRaisesRegex(ValueError, "CABLELABEL_OPEN_BROWSER"):

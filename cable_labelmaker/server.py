@@ -69,9 +69,9 @@ def _open_browser_from_environment(environ=None):
     """Return whether an interactive launch should open the web interface."""
     environ = os.environ if environ is None else environ
     value = environ.get("CABLELABEL_OPEN_BROWSER", "1").strip().lower()
-    if value in ("1", "true", "yes"):
+    if value == "1":
         return True
-    if value in ("0", "false", "no"):
+    if value == "0":
         return False
     raise ValueError("CABLELABEL_OPEN_BROWSER must be 1 or 0")
 

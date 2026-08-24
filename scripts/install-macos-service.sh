@@ -2,6 +2,8 @@
 set -euo pipefail
 
 project_dir="${0:A:h:h}"
+# shellcheck source=scripts/lib/common.sh
+source "$project_dir/scripts/lib/common.sh"
 script_name="${0:t}"
 app_source="$project_dir/dist/Cable Labelmaker.app"
 app_destination="/Applications/Cable Labelmaker.app"
@@ -11,42 +13,6 @@ port="9462"
 
 usage() {
   echo "Usage: $script_name [--app PATH] [--port PORT] [--trusted-origin HTTPS_ORIGIN]..."
-}
-
-validate_port() {
-  local value="$1"
-  local port_number
-
-  [[ "$value" =~ '^[0-9]+$' && ${#value} -le 5 ]] || return 1
-  port_number=$(( 10#$value ))
-  (( port_number >= 1 && port_number <= 65535 ))
-}
-
-validate_trusted_origin() {
-  local origin="$1"
-  local authority host origin_port label
-  local -a labels
-
-  [[ "$origin" == https://* ]] || return 1
-  authority="${origin#https://}"
-  authority="${authority%/}"
-  [[ -n "$authority" ]] || return 1
-  [[ "$authority" != */* && "$authority" != *\?* && "$authority" != *\#* ]] || return 1
-  [[ "$authority" != *@* && "$authority" != *[[:space:]]* ]] || return 1
-
-  if [[ "$authority" == *:* ]]; then
-    host="${authority%:*}"
-    origin_port="${authority##*:}"
-    validate_port "$origin_port" || return 1
-  else
-    host="$authority"
-  fi
-
-  [[ -n "$host" && "$host" != .* && "$host" != *. && "$host" != *..* ]] || return 1
-  labels=("${(@s:.:)host}")
-  for label in "${labels[@]}"; do
-    [[ "$label" =~ '^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?$' ]] || return 1
-  done
 }
 
 while [[ $# -gt 0 ]]; do
@@ -115,16 +81,7 @@ mkdir -p "$launch_agents" "$logs"
 /bin/launchctl bootstrap "$domain" "$launch_agent"
 
 health_url="http://127.0.0.1:$port/"
-healthy=0
-for _attempt in {1..20}; do
-  if /usr/bin/curl --fail --silent --connect-timeout 1 --max-time 2 "$health_url" >/dev/null; then
-    healthy=1
-    break
-  fi
-  /bin/sleep 1
-done
-
-if (( ! healthy )); then
+if ! wait_for_http "$health_url"; then
   echo "Cable Labelmaker did not become healthy at $health_url" >&2
   /usr/bin/curl --fail --silent --show-error --connect-timeout 1 --max-time 2 \
     "$health_url" >/dev/null || true

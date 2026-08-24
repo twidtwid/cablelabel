@@ -10,7 +10,7 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 15
     steps:
       - name: Check out repository
         uses: actions/checkout@v7.0.1
@@ -35,6 +35,17 @@ jobs:
             echo "Release tag $GITHUB_REF_NAME is not on origin/main" >&2
             exit 1
           fi
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v10.0.1
+        with:
+          python-version: "3.12"
+
+      - name: Install verification dependencies
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: Run source checks
+        run: make check
 
   build:
     needs: validate
@@ -70,9 +81,6 @@ jobs:
       - name: Install Linux build dependencies
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y file libudev-dev pkg-config shellcheck
-
-      - name: Run checks
-        run: make check
 
       - name: Build macOS application
         if: runner.os == 'macOS'
