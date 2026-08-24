@@ -65,6 +65,17 @@ def _runtime_config_from_environment(environ=None):
     return port, trusted_origins
 
 
+def _open_browser_from_environment(environ=None):
+    """Return whether an interactive launch should open the web interface."""
+    environ = os.environ if environ is None else environ
+    value = environ.get("CABLELABEL_OPEN_BROWSER", "1").strip().lower()
+    if value in ("1", "true", "yes"):
+        return True
+    if value in ("0", "false", "no"):
+        return False
+    raise ValueError("CABLELABEL_OPEN_BROWSER must be 1 or 0")
+
+
 class LabelmakerHTTPServer(ThreadingHTTPServer):
     def __init__(self, address, printer, trusted_origins=()):
         remote_hosts = set()
@@ -230,7 +241,8 @@ def main():
     port, trusted_origins = _runtime_config_from_environment()
     server = create_server(("127.0.0.1", port), trusted_origins=trusted_origins)
     url = f"http://127.0.0.1:{server.server_port}"
-    threading.Timer(0.3, lambda: webbrowser.open_new_tab(url)).start()
+    if _open_browser_from_environment():
+        threading.Timer(0.3, lambda: webbrowser.open_new_tab(url)).start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:
