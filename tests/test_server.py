@@ -1,18 +1,22 @@
 import json
+import tempfile
 import threading
 import unittest
 import urllib.error
 import urllib.request
 from io import BytesIO
+from pathlib import Path
+from unittest.mock import patch
 
 from PIL import Image
 
-from cable_labelmaker.printer import PrinterError
+from cable_labelmaker.printer import PrinterError, PrinterLock, friendly_printer_error
 from cable_labelmaker.renderer import mm_to_px, render_wrap_label
 from cable_labelmaker.server import (
-    _runtime_config_from_environment,
     create_server,
-    friendly_printer_error,
+    open_browser_from_environment,
+    run_server,
+    runtime_config_from_environment,
 )
 
 
@@ -36,11 +40,14 @@ class FakePrinter:
 class LabelmakerServerTests(unittest.TestCase):
     def setUp(self):
         self.printer = FakePrinter()
+        self.lock_directory = tempfile.TemporaryDirectory()
+        self.printer_lock = PrinterLock(Path(self.lock_directory.name) / "printer.lock")
         self.tailnet_origin = "https://cablelabel.example.com:9462"
         self.server = create_server(
             ("127.0.0.1", 0),
             self.printer,
             trusted_origins=(self.tailnet_origin,),
+            printer_lock=self.printer_lock,
         )
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
@@ -50,6 +57,7 @@ class LabelmakerServerTests(unittest.TestCase):
         self.server.shutdown()
         self.server.server_close()
         self.thread.join(timeout=2)
+        self.lock_directory.cleanup()
 
     def post(self, path, payload):
         request = urllib.request.Request(
@@ -76,6 +84,13 @@ class LabelmakerServerTests(unittest.TestCase):
         self.assertIn("Cable Labelmaker", body)
         self.assertIn("Print All", body)
         self.assertNotIn("image-rendering: pixelated", body)
+
+    def test_health_identifies_the_running_version(self):
+        with urllib.request.urlopen(self.base_url + "/api/health", timeout=2) as response:
+            payload = json.load(response)
+
+        self.assertEqual("cablelabel", payload["name"])
+        self.assertRegex(payload["version"], r"^\d+\.\d+\.\d+$")
 
     def test_preview_models_the_full_tape_around_the_printer_bitmap(self):
         with self.post("/api/preview", {"label": "MAC MINI -> SWITCH 08", "length": 48}) as response:
@@ -133,7 +148,7 @@ class LabelmakerServerTests(unittest.TestCase):
         payload = json.load(error.exception)
         self.assertEqual(503, error.exception.code)
         self.assertFalse(payload["connected"])
-        self.assertIn("P-touch Editor", payload["detail"])
+        self.assertIn("other program", payload["detail"])
 
     def test_invalid_host_is_rejected(self):
         error = self.rejected_post(
@@ -220,6 +235,19 @@ class LabelmakerServerTests(unittest.TestCase):
             print_thread.join(timeout=2)
         self.assertEqual([], errors)
 
+    def test_external_printer_lock_rejects_web_print_job(self):
+        external_lock = PrinterLock(self.printer_lock.path)
+        self.assertTrue(external_lock.acquire(blocking=False))
+        try:
+            with self.assertRaises(urllib.error.HTTPError) as error:
+                self.post("/api/print", {"labels": ["LOCKED"], "length": 48})
+        finally:
+            external_lock.release()
+
+        self.assertEqual(409, error.exception.code)
+        self.assertEqual("A print job is already running", json.load(error.exception)["error"])
+        self.assertEqual([], self.printer.printed)
+
     def test_invalid_length_is_rejected(self):
         with self.assertRaises(urllib.error.HTTPError) as error:
             self.post("/api/preview", {"label": "TEST", "length": 200})
@@ -241,13 +269,13 @@ class LabelmakerServerTests(unittest.TestCase):
 
 class LabelmakerHelpersTests(unittest.TestCase):
     def test_runtime_configuration_defaults_to_local_only(self):
-        port, trusted_origins = _runtime_config_from_environment({})
+        port, trusted_origins = runtime_config_from_environment({})
 
         self.assertEqual(9462, port)
         self.assertEqual((), trusted_origins)
 
     def test_runtime_configuration_accepts_port_and_multiple_origins(self):
-        port, trusted_origins = _runtime_config_from_environment(
+        port, trusted_origins = runtime_config_from_environment(
             {
                 "CABLELABEL_PORT": "10462",
                 "CABLELABEL_TRUSTED_ORIGINS": (
@@ -268,17 +296,59 @@ class LabelmakerHelpersTests(unittest.TestCase):
     def test_runtime_configuration_rejects_invalid_port(self):
         for value in ("nope", "0", "65536"):
             with self.subTest(value=value), self.assertRaises(ValueError):
-                _runtime_config_from_environment({"CABLELABEL_PORT": value})
+                runtime_config_from_environment({"CABLELABEL_PORT": value})
+
+    def test_browser_opening_defaults_on_and_accepts_binary_values(self):
+        self.assertTrue(open_browser_from_environment({}))
+        self.assertFalse(open_browser_from_environment({"CABLELABEL_OPEN_BROWSER": "0"}))
+        self.assertTrue(open_browser_from_environment({"CABLELABEL_OPEN_BROWSER": "1"}))
+
+    def test_browser_opening_rejects_invalid_value(self):
+        with self.assertRaisesRegex(ValueError, "CABLELABEL_OPEN_BROWSER"):
+            open_browser_from_environment({"CABLELABEL_OPEN_BROWSER": "sometimes"})
 
     def test_server_rejects_non_https_trusted_origin(self):
         with self.assertRaisesRegex(ValueError, "HTTPS origins"):
             create_server(("127.0.0.1", 0), FakePrinter(), ("http://example.com",))
 
-    def test_device_not_found_message_has_mac_recovery_steps(self):
+    def test_device_not_found_message_has_platform_neutral_recovery_steps(self):
         message = friendly_printer_error("Error: Device not found")
 
         self.assertIn("power it on", message.lower())
-        self.assertIn("P-touch Editor", message)
+        self.assertIn("other program", message)
+
+    def test_run_server_opens_the_emitted_url_when_requested(self):
+        class ImmediateTimer:
+            def __init__(self, _delay, callback):
+                self.callback = callback
+
+            def start(self):
+                self.callback()
+
+        class FakeServer:
+            server_port = 10462
+
+            def serve_forever(self):
+                return
+
+            def server_close(self):
+                return
+
+        urls = []
+        with patch("cable_labelmaker.server.threading.Timer", ImmediateTimer), patch(
+            "cable_labelmaker.server.webbrowser.open_new_tab"
+        ) as open_tab:
+            run_server(
+                10462,
+                (),
+                True,
+                printer=FakePrinter(),
+                server_factory=lambda *_args, **_kwargs: FakeServer(),
+                ready_callback=urls.append,
+            )
+
+        self.assertEqual(["http://127.0.0.1:10462"], urls)
+        open_tab.assert_called_once_with("http://127.0.0.1:10462")
 
 
 if __name__ == "__main__":

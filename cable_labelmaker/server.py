@@ -12,13 +12,20 @@ from pathlib import Path
 from socketserver import TCPServer
 from urllib.parse import urlparse
 
-from .printer import PrinterError, PtouchPrinter
+from . import __version__
+from .limits import MAX_BATCH_SIZE, MAX_LENGTH_MM, MIN_LENGTH_MM
+from .printer import (
+    PRINTER_LOCK,
+    PTOUCH_BINARY,
+    PrinterError,
+    PtouchPrinter,
+    friendly_printer_error,
+)
 from .renderer import DEFAULT_LENGTH_MM, render_many, render_tape_preview
 
 
 RESOURCE_ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent))
 WEB_ROOT = RESOURCE_ROOT / "web"
-PTOUCH_BINARY = RESOURCE_ROOT / "bin" / "ptouch"
 APP_PORT = 9462
 
 
@@ -26,28 +33,23 @@ class RequestRejected(Exception):
     """The browser request did not come from this local app."""
 
 
-def friendly_printer_error(detail: str) -> str:
-    if "device not found" in detail.lower():
-        return (
-            "PT-D600 not found. Connect its USB cable, power it on, and quit "
-            "P-touch Editor before trying again."
-        )
-    if "busy" in detail.lower() or "access" in detail.lower():
-        return "The PT-D600 is busy. Quit P-touch Editor, then try again."
-    return detail.strip()
-
-
 def _length(value) -> int:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError("Wrap length must be a number")
     length = int(value)
-    if not 39 <= length <= 70:
-        raise ValueError("Wrap length must be between 39 and 70 mm")
+    if not MIN_LENGTH_MM <= length <= MAX_LENGTH_MM:
+        raise ValueError(f"Wrap length must be between {MIN_LENGTH_MM} and {MAX_LENGTH_MM} mm")
     return length
 
 
-def _runtime_config_from_environment(environ=None):
+def runtime_config_from_environment(environ=None):
     """Return the listening port and optional HTTPS origins for remote access."""
+    environ = os.environ if environ is None else environ
+    return port_from_environment(environ), trusted_origins_from_environment(environ)
+
+
+def port_from_environment(environ=None):
+    """Return the validated listening port from the environment."""
     environ = os.environ if environ is None else environ
     raw_port = environ.get("CABLELABEL_PORT", str(APP_PORT))
     try:
@@ -56,17 +58,32 @@ def _runtime_config_from_environment(environ=None):
         raise ValueError("CABLELABEL_PORT must be an integer from 1 to 65535") from exc
     if not 1 <= port <= 65535:
         raise ValueError("CABLELABEL_PORT must be an integer from 1 to 65535")
+    return port
 
-    trusted_origins = tuple(
+
+def trusted_origins_from_environment(environ=None):
+    """Return optional HTTPS origins from the environment."""
+    environ = os.environ if environ is None else environ
+    return tuple(
         origin.strip()
         for origin in environ.get("CABLELABEL_TRUSTED_ORIGINS", "").split(",")
         if origin.strip()
     )
-    return port, trusted_origins
+
+
+def open_browser_from_environment(environ=None):
+    """Return whether an interactive launch should open the web interface."""
+    environ = os.environ if environ is None else environ
+    value = environ.get("CABLELABEL_OPEN_BROWSER", "1").strip().lower()
+    if value == "1":
+        return True
+    if value == "0":
+        return False
+    raise ValueError("CABLELABEL_OPEN_BROWSER must be 1 or 0")
 
 
 class LabelmakerHTTPServer(ThreadingHTTPServer):
-    def __init__(self, address, printer, trusted_origins=()):
+    def __init__(self, address, printer, trusted_origins=(), printer_lock=None):
         remote_hosts = set()
         remote_origins = set()
         for origin in trusted_origins:
@@ -87,14 +104,14 @@ class LabelmakerHTTPServer(ThreadingHTTPServer):
 
         super().__init__(address, LabelmakerHandler)
         self.printer = printer
-        self.printer_lock = threading.Lock()
+        self.printer_lock = PRINTER_LOCK if printer_lock is None else printer_lock
         local_host = f"{self.server_name}:{self.server_port}"
         self.allowed_hosts = {local_host, *remote_hosts}
         self.allowed_origins = {f"http://{local_host}", *remote_origins}
 
     def server_bind(self):
         # HTTPServer normally performs a reverse-DNS lookup here. That lookup
-        # can stall a windowed macOS app and is unnecessary for localhost.
+        # can stall an interactive desktop app and is unnecessary for localhost.
         TCPServer.server_bind(self)
         host, port = self.socket.getsockname()[:2]
         self.server_name = host
@@ -140,6 +157,9 @@ class LabelmakerHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = urlparse(self.path).path
+        if path == "/api/health":
+            self._json(200, {"name": "cablelabel", "version": __version__})
+            return
         if path == "/":
             self._send(200, "text/html; charset=utf-8", (WEB_ROOT / "index.html").read_bytes())
             return
@@ -190,8 +210,8 @@ class LabelmakerHandler(BaseHTTPRequestHandler):
         labels = [normalised for label in labels if (normalised := str(label).strip())]
         if not labels:
             raise ValueError("Add at least one label")
-        if len(labels) > 100:
-            raise ValueError("Print batches are limited to 100 labels")
+        if len(labels) > MAX_BATCH_SIZE:
+            raise ValueError(f"Print batches are limited to {MAX_BATCH_SIZE} labels")
         length = _length(payload.get("length", DEFAULT_LENGTH_MM))
         if not self.server.printer_lock.acquire(blocking=False):
             self._json(409, {"error": "A print job is already running"})
@@ -218,25 +238,51 @@ class LabelmakerHandler(BaseHTTPRequestHandler):
             self.server.printer_lock.release()
 
 
-def create_server(address=("127.0.0.1", APP_PORT), printer=None, trusted_origins=()):
+def create_server(
+    address=("127.0.0.1", APP_PORT),
+    printer=None,
+    trusted_origins=(),
+    printer_lock=None,
+):
     return LabelmakerHTTPServer(
         address,
         printer or PtouchPrinter(PTOUCH_BINARY),
         trusted_origins=trusted_origins,
+        printer_lock=printer_lock,
     )
 
 
-def main():
-    port, trusted_origins = _runtime_config_from_environment()
-    server = create_server(("127.0.0.1", port), trusted_origins=trusted_origins)
+def run_server(
+    port,
+    trusted_origins,
+    open_browser,
+    *,
+    printer=None,
+    server_factory=create_server,
+    ready_callback=None,
+):
+    """Run the web server until interrupted, optionally reporting its URL."""
+    server = server_factory(
+        ("127.0.0.1", port),
+        printer=printer,
+        trusted_origins=trusted_origins,
+    )
     url = f"http://127.0.0.1:{server.server_port}"
-    threading.Timer(0.3, lambda: webbrowser.open_new_tab(url)).start()
+    if ready_callback is not None:
+        ready_callback(url)
+    if open_browser:
+        threading.Timer(0.3, lambda: webbrowser.open_new_tab(url)).start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
         server.server_close()
+
+
+def main():
+    port, trusted_origins = runtime_config_from_environment()
+    run_server(port, trusted_origins, open_browser_from_environment())
 
 
 if __name__ == "__main__":

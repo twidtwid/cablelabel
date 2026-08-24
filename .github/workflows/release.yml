@@ -8,13 +8,12 @@ permissions:
   contents: write
 
 jobs:
-  release:
-    runs-on: macos-14
-    timeout-minutes: 25
-
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0
 
@@ -42,32 +41,113 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install build dependency
-        run: brew install imagemagick
+      - name: Install verification dependencies
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
 
-      - name: Run checks
+      - name: Run source checks
         run: make check
 
-      - name: Build application
+  build:
+    needs: validate
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            platform: macOS
+            archive_arch: arm64
+          - runner: ubuntu-24.04
+            platform: linux
+            archive_arch: x86_64
+          - runner: ubuntu-24.04-arm
+            platform: linux
+            archive_arch: arm64
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7.0.1
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v10.0.1
+        with:
+          python-version: "3.12"
+
+      - name: Install macOS build dependency
+        if: runner.os == 'macOS'
+        run: brew install imagemagick
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y file libudev-dev pkg-config shellcheck
+
+      - name: Build macOS application
+        if: runner.os == 'macOS'
         run: scripts/build-mac-app.sh
 
-      - name: Verify application bundle
-        run: >-
-          scripts/verify-macos-app.sh
-          "dist/Cable Labelmaker.app"
-          "${GITHUB_REF_NAME#v}"
+      - name: Package macOS application
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          release_name="Cable-Labelmaker-${GITHUB_REF_NAME}-macOS-arm64"
+          release_root="dist/$release_name"
+          mkdir -p "$release_root/dist" "$release_root/scripts/lib" "$release_root/macos"
+          ditto "dist/Cable Labelmaker.app" "$release_root/dist/Cable Labelmaker.app"
+          cp scripts/install-macos-service.sh scripts/verify-macos-app.sh \
+            scripts/verify-macos-release.sh "$release_root/scripts/"
+          cp scripts/lib/common.sh "$release_root/scripts/lib/"
+          cp macos/io.github.twidtwid.cablelabel.plist "$release_root/macos/"
+          cp README.md LICENSE THIRD_PARTY_NOTICES.md "$release_root/"
+          ditto -c -k --sequesterRsrc --keepParent \
+            "$release_root" "dist/${release_name}.zip"
+          scripts/verify-macos-release.sh "dist/${release_name}.zip"
 
-      - name: Package application
-        run: >-
-          ditto -c -k --sequesterRsrc --keepParent
-          "dist/Cable Labelmaker.app"
-          "dist/Cable-Labelmaker-${GITHUB_REF_NAME}-macOS-arm64.zip"
+      - name: Build Linux application
+        if: runner.os == 'Linux'
+        run: scripts/build-linux-app.sh
+
+      - name: Package Linux application
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          release_name="Cable-Labelmaker-${GITHUB_REF_NAME}-linux-${{ matrix.archive_arch }}"
+          release_root="dist/$release_name"
+          mkdir -p "$release_root/dist" "$release_root/scripts/lib"
+          cp -a dist/cablelabel "$release_root/dist/"
+          cp scripts/install-linux-service.sh "$release_root/scripts/"
+          cp scripts/lib/common.sh "$release_root/scripts/lib/"
+          cp -a linux "$release_root/"
+          cp README.md LICENSE THIRD_PARTY_NOTICES.md "$release_root/"
+          tar -C dist -czf "dist/${release_name}.tar.gz" "$release_name"
+          scripts/verify-linux-release.sh "dist/${release_name}.tar.gz"
+
+      - name: Upload release archive
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: cablelabel-${{ matrix.platform }}-${{ matrix.archive_arch }}
+          path: |
+            dist/Cable-Labelmaker-*.zip
+            dist/Cable-Labelmaker-*.tar.gz
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Download release archives
+        uses: actions/download-artifact@v8.0.1
+        with:
+          path: dist
+          merge-multiple: true
 
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: >-
           gh release create "$GITHUB_REF_NAME"
-          "dist/Cable-Labelmaker-${GITHUB_REF_NAME}-macOS-arm64.zip"
+          dist/*
           --generate-notes
           --verify-tag

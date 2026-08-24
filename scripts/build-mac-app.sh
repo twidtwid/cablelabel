@@ -2,33 +2,10 @@
 set -euo pipefail
 
 project_dir="${0:A:h:h}"
-ptouch_version="0.5.0"
-ptouch_url="https://github.com/vowstar/ptouch-rs/releases/download/v${ptouch_version}/ptouch-macos-arm64"
+# shellcheck source=scripts/lib/common.sh
+source "$project_dir/scripts/lib/common.sh"
+ptouch_url="https://github.com/vowstar/ptouch-rs/releases/download/v${PTOUCH_VERSION}/ptouch-macos-arm64"
 ptouch_sha="1645b7e985a4704ba74173acfff3a71ba0b0f3c6d01e99061003b3f956ee6fa1"
-ptouch_license_url="https://raw.githubusercontent.com/vowstar/ptouch-rs/v${ptouch_version}/LICENSE"
-ptouch_license_sha="3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
-
-download_verified() {
-  local url="$1"
-  local expected_sha="$2"
-  local destination="$3"
-  local artifact_name="$4"
-
-  if [[ -f "$destination" ]] && \
-    [[ "$(shasum -a 256 "$destination" | awk '{print $1}')" == "$expected_sha" ]]; then
-    return
-  fi
-
-  curl -fL --connect-timeout 10 --max-time 120 --retry 3 --retry-delay 2 \
-    --retry-all-errors "$url" -o "$destination.download"
-  local downloaded_sha
-  downloaded_sha="$(shasum -a 256 "$destination.download" | awk '{print $1}')"
-  if [[ "$downloaded_sha" != "$expected_sha" ]]; then
-    echo "$artifact_name checksum mismatch" >&2
-    exit 1
-  fi
-  mv "$destination.download" "$destination"
-}
 
 cd "$project_dir"
 
@@ -44,7 +21,7 @@ fi
 
 "$uv_bin" pip install --python .venv/bin/python -r requirements.txt -r requirements-build.txt
 app_version="$(.venv/bin/python -c 'from cable_labelmaker import __version__; print(__version__)')"
-if [[ ! "$app_version" =~ '^[0-9]+([.][0-9]+){1,2}$' ]]; then
+if ! validate_app_version "$app_version"; then
   echo "App version must contain two or three numeric components: $app_version" >&2
   exit 1
 fi
@@ -55,8 +32,8 @@ chmod 755 bin/ptouch
 
 ptouch_license="build/licenses/ptouch-rs-GPL-3.0.txt"
 download_verified \
-  "$ptouch_license_url" \
-  "$ptouch_license_sha" \
+  "$PTOUCH_LICENSE_URL" \
+  "$PTOUCH_LICENSE_SHA" \
   "$ptouch_license" \
   "ptouch license"
 
@@ -83,10 +60,10 @@ iconutil -c icns build/icon.iconset -o build/CableLabelmaker.icns
   --name "Cable Labelmaker" \
   --osx-bundle-identifier "io.github.twidtwid.cablelabel" \
   --icon build/CableLabelmaker.icns \
-  --add-binary "bin/ptouch:bin" \
-  --add-data "web:web" \
-  --add-data "THIRD_PARTY_NOTICES.md:." \
-  --add-data "${ptouch_license}:licenses" \
+  --add-binary "$project_dir/bin/ptouch:bin" \
+  --add-data "$project_dir/web:web" \
+  --add-data "$project_dir/THIRD_PARTY_NOTICES.md:." \
+  --add-data "$project_dir/${ptouch_license}:licenses" \
   --collect-all PIL \
   main.py
 

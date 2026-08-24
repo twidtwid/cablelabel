@@ -1,0 +1,3 @@
+# Brother PT-D600 USB access for the service user and active desktop user.
+# Vendor 04f9, product 2074.
+SUBSYSTEM=="usb", ATTR{idVendor}=="04f9", ATTR{idProduct}=="2074", OWNER="@CABLELABEL_USER@", MODE="0600", TAG+="uaccess"

@@ -1,9 +1,15 @@
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from cable_labelmaker.renderer import (
     DEFAULT_LENGTH_MM,
+    FONT_CANDIDATES,
     PRINT_HEIGHT_PX,
+    RESOURCE_ROOT,
     _fitted_font,
+    _font_path,
     _split_lines,
     mm_to_px,
     render_wrap_label,
@@ -11,6 +17,27 @@ from cable_labelmaker.renderer import (
 
 
 class WrapLabelRendererTests(unittest.TestCase):
+    def test_font_candidates_include_packaged_and_linux_fallbacks(self):
+        self.assertEqual(
+            RESOURCE_ROOT / "fonts" / "RobotoCondensed-Bold.ttf",
+            FONT_CANDIDATES[3],
+        )
+        self.assertTrue(
+            any(str(candidate).startswith("/usr/share/fonts/") for candidate in FONT_CANDIDATES[4:])
+        )
+
+    def test_font_path_uses_a_later_available_candidate(self):
+        with TemporaryDirectory() as directory:
+            fallback = Path(directory) / "fallback.ttf"
+            fallback.touch()
+            with patch(
+                "cable_labelmaker.renderer.FONT_CANDIDATES",
+                (Path(directory) / "missing.ttf", fallback),
+            ):
+                _font_path.cache_clear()
+                self.assertEqual(fallback, _font_path())
+            _font_path.cache_clear()
+
     def test_default_label_has_physical_dimensions(self):
         image = render_wrap_label("MAC MINI")
 

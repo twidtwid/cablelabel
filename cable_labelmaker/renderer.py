@@ -2,6 +2,7 @@
 
 import math
 import re
+import sys
 from functools import lru_cache
 from pathlib import Path
 from typing import Iterable, Sequence, Tuple
@@ -15,10 +16,15 @@ PRINT_HEIGHT_PX = 128
 DEFAULT_LENGTH_MM = 48
 TAPE_MARGIN_PX = 6
 MAX_FONT_SIZE = 20
+RESOURCE_ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent))
 FONT_CANDIDATES = (
     Path("/System/Library/Fonts/Supplemental/DIN Condensed Bold.ttf"),
     Path("/System/Library/Fonts/Avenir Next Condensed.ttc"),
     Path("/System/Library/Fonts/Supplemental/Arial Narrow Bold.ttf"),
+    RESOURCE_ROOT / "fonts" / "RobotoCondensed-Bold.ttf",
+    Path("/usr/share/fonts/truetype/roboto/unhinted/RobotoCondensed-Bold.ttf"),
+    Path("/usr/share/fonts/truetype/roboto/RobotoCondensed-Bold.ttf"),
+    Path("/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-Bold.ttf"),
 )
 
 

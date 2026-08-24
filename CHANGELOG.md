@@ -2,6 +2,23 @@
 
 Notable changes are listed newest first.
 
+## 0.3.0 — 2026-08-23
+
+- Added a cross-platform `cablelabel` CLI for printer status, PNG previews,
+  batch printing, and the local web server.
+- Added stable JSON results and documented exit codes for agentic use.
+- Added `~/.local/bin/cablelabel` during macOS and Linux installation.
+- macOS upgrades retire the pre-release LaunchAgent before starting the current service.
+- Release archives now include the persistent installer and required service files.
+- Installers verify an app-specific health response; Linux upgrades roll back on failure.
+
+## 0.2.0 — 2026-08-23
+
+- Added native Linux bundles for x86_64 and arm64.
+- Added persistent systemd user-service installation.
+- Added the PT-D600 udev permission rule and headless startup mode.
+- Added Linux build, smoke-test, and release coverage in GitHub Actions.
+
 ## 0.1.0 — 2026-08-23
 
 - Added print-accurate wraparound previews for 24 mm Brother tape.

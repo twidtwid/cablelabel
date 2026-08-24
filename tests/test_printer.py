@@ -1,9 +1,46 @@
 import subprocess
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from cable_labelmaker.printer import PtouchPrinter, PrinterError
+from cable_labelmaker.printer import PrinterLock, PtouchPrinter, PrinterError
+
+
+class PrinterLockTests(unittest.TestCase):
+    def test_lock_is_shared_between_processes_and_released(self):
+        child_program = """
+import sys
+from pathlib import Path
+from cable_labelmaker.printer import PrinterLock
+
+lock = PrinterLock(Path(sys.argv[1]))
+raise SystemExit(0 if lock.acquire(blocking=False) else 23)
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            lock_path = Path(directory) / "printer.lock"
+            lock = PrinterLock(lock_path)
+            self.assertTrue(lock.acquire(blocking=False))
+            try:
+                contended = subprocess.run(
+                    [sys.executable, "-c", child_program, str(lock_path)],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+            finally:
+                lock.release()
+
+            available = subprocess.run(
+                [sys.executable, "-c", child_program, str(lock_path)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(23, contended.returncode, contended.stderr)
+        self.assertEqual(0, available.returncode, available.stderr)
 
 
 class PtouchPrinterTests(unittest.TestCase):
