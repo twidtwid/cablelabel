@@ -6,9 +6,11 @@ Thanks for helping improve Cable Labelmaker.
 
 Requirements:
 
-- macOS on Apple silicon
+- macOS on Apple silicon or Linux on x86_64/arm64
 - [uv](https://docs.astral.sh/uv/)
-- ImageMagick for application builds
+- ImageMagick for macOS application builds
+- `file`, `shellcheck`, and systemd tools for Linux verification
+- Rust, `pkg-config`, and libudev development files for Linux arm64 builds
 
 Run the automated gate before opening a pull request:
 

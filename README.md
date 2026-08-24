@@ -1,31 +1,29 @@
 # Cable Labelmaker
 
-A small, local macOS app for designing and printing wraparound cable labels on
-24 mm Brother laminated tape. It renders a print-accurate preview and sends the
-label directly to a Brother PT-D600 over USB—no P-touch Editor round trip.
+A small local app for designing and printing wraparound cable labels on 24 mm
+Brother laminated tape. It renders a print-accurate preview and sends labels
+directly to a Brother PT-D600 over USB.
 
 ## What it does
 
-- Repeats compact, rotated text around the cable so it is readable from several sides.
+- Repeats compact, rotated text around the cable for visibility from several sides.
 - Supports one, two, or three stacked lines with a consistent 20-dot type size.
 - Previews the full 24 mm tape, including the printer's unprintable margins.
 - Prints one label or a batch directly over USB.
 - Runs locally by default and can optionally be exposed inside a Tailscale tailnet.
+- Supports Apple silicon macOS and x86_64/arm64 Linux.
 
-The current release targets Apple silicon Macs, the Brother PT-D600, and 24 mm
-laminated tape. The default label is 48 mm long, leaving enough overlap for a
-durable wrap on typical network cables.
+The default label is 48 mm long. This leaves enough overlap for a durable wrap
+on typical network cables.
 
-## Build and install
+## Build and install on macOS
 
 Requirements:
 
-- macOS on Apple silicon
+- Apple silicon Mac
 - [uv](https://docs.astral.sh/uv/)
 - ImageMagick (`brew install imagemagick`)
-- A Brother PT-D600 connected over USB
-
-Build the ad-hoc-signed app and install it as a persistent per-user service:
+- Brother PT-D600 connected over USB
 
 ```sh
 scripts/build-mac-app.sh
@@ -33,12 +31,45 @@ scripts/install-macos-service.sh
 ```
 
 The installer copies the app to `/Applications/Cable Labelmaker.app`, installs
-a LaunchAgent, and keeps it available at <http://127.0.0.1:9462/>. Quit P-touch
-Editor before printing because only one application can own the USB device.
-Use `--port PORT` to select another local port.
+a LaunchAgent, and keeps it available at <http://127.0.0.1:9462/>. The app is
+locally signed but not notarized. macOS can require one Control-click, **Open**,
+and confirmation on first launch.
 
-The app is locally signed but not notarized. On first launch, macOS may require
-you to Control-click the app, choose **Open**, and confirm.
+## Build and install on Linux
+
+Linux bundles support x86_64 and arm64. Persistent installation uses a systemd
+user service. The installer also adds a udev rule for PT-D600 USB access.
+
+Debian and Ubuntu build requirements:
+
+```sh
+sudo apt install curl file libudev-dev pkg-config shellcheck
+```
+
+Install [uv](https://docs.astral.sh/uv/), then build and install:
+
+```sh
+scripts/build-linux-app.sh
+scripts/install-linux-service.sh
+```
+
+The arm64 build also requires a Rust toolchain because ptouch-rs does not
+publish a Linux arm64 binary. The build compiles its pinned `v0.5.0` source.
+
+The installer places versioned bundles under `~/.local/opt/cablelabel`, enables
+`cablelabel.service`, and checks <http://127.0.0.1:9462/> before reporting
+success. It uses `sudo` only to install and reload the PT-D600 udev rule.
+
+For a headless machine that must start the user service before login, enable
+lingering once:
+
+```sh
+loginctl enable-linger "$USER"
+```
+
+Use `--port PORT` with either installer to select another local port. Quit any
+other program using the PT-D600 before printing because only one process can
+own the USB device.
 
 ## Make labels
 
@@ -51,44 +82,33 @@ ROUTER P3 | FLEX P9 | 2.5G
 OFFICE -> SWITCH 08
 ```
 
-For the best adhesion, clean the cable, wrap firmly, and overlap at least 12 mm
-of laminated tape onto itself.
+Clean the cable, wrap firmly, and overlap at least 12 mm of tape onto itself.
 
 ## Tailnet access
 
-Cable Labelmaker binds only to localhost. Tailscale Serve can add HTTPS and
-make it available to devices allowed by your tailnet policy without opening it
-to the public internet.
+Cable Labelmaker binds only to localhost. Tailscale Serve can add HTTPS inside
+your tailnet without opening the app to the public internet.
 
-Replace the example hostname with this Mac's Tailscale DNS name:
+Replace the example hostname with the machine's Tailscale DNS name:
 
 ```sh
-scripts/install-macos-service.sh \
-  --trusted-origin "https://my-mac.my-tailnet.ts.net:9462"
+scripts/install-linux-service.sh \
+  --trusted-origin "https://label-host.example.ts.net:9462"
 tailscale serve --bg --https=9462 http://127.0.0.1:9462
 ```
 
-Then open `https://my-mac.my-tailnet.ts.net:9462/`. Trusted origins must be
-explicit HTTPS origins. You can repeat `--trusted-origin` when more than one is
-needed.
+Use `scripts/install-macos-service.sh` on macOS. Then open the trusted HTTPS
+URL. You can repeat `--trusted-origin` when more than one origin is needed.
 
-Do not use Tailscale Funnel for this app. Cable Labelmaker intentionally has no
-application-level login; tailnet identity and access controls are its remote
-security boundary.
+Do not use Tailscale Funnel. Cable Labelmaker has no application-level login;
+tailnet identity and access controls are its remote security boundary.
 
 ## Development
 
-Run the same gate used by CI:
+Run the platform-specific gate used by CI:
 
 ```sh
 make check
-```
-
-Or run the test suite directly:
-
-```sh
-uv run --with-requirements requirements.txt \
-  python -m unittest discover -s tests -v
 ```
 
 Runtime configuration:
@@ -97,14 +117,14 @@ Runtime configuration:
 |---|---:|---|
 | `CABLELABEL_PORT` | `9462` | Local listening port |
 | `CABLELABEL_TRUSTED_ORIGINS` | empty | Comma-separated HTTPS origins allowed through a trusted reverse proxy |
+| `CABLELABEL_OPEN_BROWSER` | `1` | Set to `0` for a headless service |
 
 ## Direct-print engine
 
-The USB transport is provided by
-[`vowstar/ptouch-rs`](https://github.com/vowstar/ptouch-rs), version 0.5.0. The
-build downloads its Apple silicon binary and verifies the published SHA-256
-digest before bundling it. `ptouch-rs` is GPL-3.0-or-later; see
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+[`vowstar/ptouch-rs`](https://github.com/vowstar/ptouch-rs) provides USB
+transport. Builds pin version `0.5.0`, verify downloaded SHA-256 digests, and
+bundle its GPL license. The Linux arm64 bundle compiles the same pinned source
+with Cargo's lockfile. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## License
 

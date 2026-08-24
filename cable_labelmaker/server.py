@@ -105,7 +105,7 @@ class LabelmakerHTTPServer(ThreadingHTTPServer):
 
     def server_bind(self):
         # HTTPServer normally performs a reverse-DNS lookup here. That lookup
-        # can stall a windowed macOS app and is unnecessary for localhost.
+        # can stall an interactive desktop app and is unnecessary for localhost.
         TCPServer.server_bind(self)
         host, port = self.socket.getsockname()[:2]
         self.server_name = host
