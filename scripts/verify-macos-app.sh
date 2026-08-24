@@ -54,5 +54,21 @@ lipo "$main_executable" -verify_arch arm64 >/dev/null || \
 lipo "$ptouch_executable" -verify_arch arm64 >/dev/null || \
   fail "ptouch does not contain arm64"
 
+cli_version="$($main_executable --version)"
+[[ "$cli_version" == "cablelabel $expected_version" ]] || \
+  fail "CLI version is incorrect: $cli_version"
+
+preview_path="$(mktemp -t cablelabel-preview)"
+cleanup() {
+  if command -v trash >/dev/null; then
+    trash "$preview_path"
+  else
+    rm -f "$preview_path"
+  fi
+}
+trap cleanup EXIT
+"$main_executable" --json preview "MACOS CLI SMOKE" --output "$preview_path" >/dev/null
+[[ "$(file "$preview_path")" == *"PNG image data"* ]] || fail "CLI preview is not a PNG"
+
 codesign --verify --deep --strict "$app_path" || fail "code signature is invalid"
 echo "Verified: $app_path ($bundle_id $short_version, arm64)"

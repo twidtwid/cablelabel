@@ -60,6 +60,10 @@ if [[ "$app_source" != "$app_destination" ]]; then
   /usr/bin/ditto "$app_source" "$app_destination"
 fi
 
+user_bin="$HOME/.local/bin"
+mkdir -p "$user_bin"
+ln -sfn "$app_destination/Contents/MacOS/Cable Labelmaker" "$user_bin/cablelabel"
+
 launch_agents="$HOME/Library/LaunchAgents"
 logs="$HOME/Library/Logs"
 launch_agent="$launch_agents/$service_label.plist"

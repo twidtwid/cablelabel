@@ -102,11 +102,20 @@ run_installer "$first_bundle"
 assert_service_sequence "first install"
 [[ "$(readlink "$test_home/.local/opt/cablelabel/current")" == \
   "$test_home/.local/opt/cablelabel/0.2.0" ]]
+[[ "$(readlink "$test_home/.local/bin/cablelabel")" == \
+  "$test_home/.local/opt/cablelabel/current/cablelabel" ]] || {
+  echo "Installer did not expose the cablelabel CLI in ~/.local/bin" >&2
+  exit 1
+}
 
 run_installer "$upgrade_bundle"
 assert_service_sequence "upgrade"
 [[ "$(readlink "$test_home/.local/opt/cablelabel/current")" == \
   "$test_home/.local/opt/cablelabel/0.2.1" ]]
+[[ -x "$test_home/.local/bin/cablelabel" ]] || {
+  echo "Installed cablelabel CLI is not executable after upgrade" >&2
+  exit 1
+}
 
 rendered_rule="$(<"$installed_udev_rule")"
 [[ "$rendered_rule" == *'OWNER="cablelabel_tester"'* ]]

@@ -2,6 +2,13 @@
 
 Notable changes are listed newest first.
 
+## 0.3.0 — 2026-08-23
+
+- Added a cross-platform `cablelabel` CLI for printer status, PNG previews,
+  batch printing, and the local web server.
+- Added stable JSON results and documented exit codes for agentic use.
+- Added `~/.local/bin/cablelabel` during macOS and Linux installation.
+
 ## 0.2.0 — 2026-08-23
 
 - Added native Linux bundles for x86_64 and arm64.

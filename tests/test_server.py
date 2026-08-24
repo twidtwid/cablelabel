@@ -1,19 +1,20 @@
 import json
+import tempfile
 import threading
 import unittest
 import urllib.error
 import urllib.request
 from io import BytesIO
+from pathlib import Path
 
 from PIL import Image
 
-from cable_labelmaker.printer import PrinterError
+from cable_labelmaker.printer import PrinterError, PrinterLock, friendly_printer_error
 from cable_labelmaker.renderer import mm_to_px, render_wrap_label
 from cable_labelmaker.server import (
-    _open_browser_from_environment,
-    _runtime_config_from_environment,
     create_server,
-    friendly_printer_error,
+    open_browser_from_environment,
+    runtime_config_from_environment,
 )
 
 
@@ -37,11 +38,14 @@ class FakePrinter:
 class LabelmakerServerTests(unittest.TestCase):
     def setUp(self):
         self.printer = FakePrinter()
+        self.lock_directory = tempfile.TemporaryDirectory()
+        self.printer_lock = PrinterLock(Path(self.lock_directory.name) / "printer.lock")
         self.tailnet_origin = "https://cablelabel.example.com:9462"
         self.server = create_server(
             ("127.0.0.1", 0),
             self.printer,
             trusted_origins=(self.tailnet_origin,),
+            printer_lock=self.printer_lock,
         )
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
@@ -51,6 +55,7 @@ class LabelmakerServerTests(unittest.TestCase):
         self.server.shutdown()
         self.server.server_close()
         self.thread.join(timeout=2)
+        self.lock_directory.cleanup()
 
     def post(self, path, payload):
         request = urllib.request.Request(
@@ -221,6 +226,19 @@ class LabelmakerServerTests(unittest.TestCase):
             print_thread.join(timeout=2)
         self.assertEqual([], errors)
 
+    def test_external_printer_lock_rejects_web_print_job(self):
+        external_lock = PrinterLock(self.printer_lock.path)
+        self.assertTrue(external_lock.acquire(blocking=False))
+        try:
+            with self.assertRaises(urllib.error.HTTPError) as error:
+                self.post("/api/print", {"labels": ["LOCKED"], "length": 48})
+        finally:
+            external_lock.release()
+
+        self.assertEqual(409, error.exception.code)
+        self.assertEqual("A print job is already running", json.load(error.exception)["error"])
+        self.assertEqual([], self.printer.printed)
+
     def test_invalid_length_is_rejected(self):
         with self.assertRaises(urllib.error.HTTPError) as error:
             self.post("/api/preview", {"label": "TEST", "length": 200})
@@ -242,13 +260,13 @@ class LabelmakerServerTests(unittest.TestCase):
 
 class LabelmakerHelpersTests(unittest.TestCase):
     def test_runtime_configuration_defaults_to_local_only(self):
-        port, trusted_origins = _runtime_config_from_environment({})
+        port, trusted_origins = runtime_config_from_environment({})
 
         self.assertEqual(9462, port)
         self.assertEqual((), trusted_origins)
 
     def test_runtime_configuration_accepts_port_and_multiple_origins(self):
-        port, trusted_origins = _runtime_config_from_environment(
+        port, trusted_origins = runtime_config_from_environment(
             {
                 "CABLELABEL_PORT": "10462",
                 "CABLELABEL_TRUSTED_ORIGINS": (
@@ -269,16 +287,16 @@ class LabelmakerHelpersTests(unittest.TestCase):
     def test_runtime_configuration_rejects_invalid_port(self):
         for value in ("nope", "0", "65536"):
             with self.subTest(value=value), self.assertRaises(ValueError):
-                _runtime_config_from_environment({"CABLELABEL_PORT": value})
+                runtime_config_from_environment({"CABLELABEL_PORT": value})
 
     def test_browser_opening_defaults_on_and_accepts_binary_values(self):
-        self.assertTrue(_open_browser_from_environment({}))
-        self.assertFalse(_open_browser_from_environment({"CABLELABEL_OPEN_BROWSER": "0"}))
-        self.assertTrue(_open_browser_from_environment({"CABLELABEL_OPEN_BROWSER": "1"}))
+        self.assertTrue(open_browser_from_environment({}))
+        self.assertFalse(open_browser_from_environment({"CABLELABEL_OPEN_BROWSER": "0"}))
+        self.assertTrue(open_browser_from_environment({"CABLELABEL_OPEN_BROWSER": "1"}))
 
     def test_browser_opening_rejects_invalid_value(self):
         with self.assertRaisesRegex(ValueError, "CABLELABEL_OPEN_BROWSER"):
-            _open_browser_from_environment({"CABLELABEL_OPEN_BROWSER": "sometimes"})
+            open_browser_from_environment({"CABLELABEL_OPEN_BROWSER": "sometimes"})
 
     def test_server_rejects_non_https_trusted_origin(self):
         with self.assertRaisesRegex(ValueError, "HTTPS origins"):

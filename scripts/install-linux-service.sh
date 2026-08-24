@@ -91,6 +91,7 @@ command -v systemctl >/dev/null || {
 
 app_root="$HOME/.local/opt/cablelabel"
 version_destination="$app_root/$app_version"
+user_bin="$HOME/.local/bin"
 service_dir="$HOME/.config/systemd/user"
 config_dir="$HOME/.config/cablelabel"
 service_destination="$service_dir/cablelabel.service"
@@ -98,9 +99,10 @@ environment_file="$config_dir/environment"
 udev_rule_template="$project_dir/linux/70-cablelabel-pt-d600.rules"
 rendered_udev_rule="$config_dir/70-cablelabel-pt-d600.rules"
 
-install -d "$version_destination" "$service_dir" "$config_dir"
+install -d "$version_destination" "$user_bin" "$service_dir" "$config_dir"
 cp -a "$bundle_source/." "$version_destination/"
 ln -sfn "$version_destination" "$app_root/current"
+ln -sfn "$app_root/current/cablelabel" "$user_bin/cablelabel"
 install -m 644 "$project_dir/linux/cablelabel.service" "$service_destination"
 {
   printf 'CABLELABEL_PORT=%s\n' "$port"

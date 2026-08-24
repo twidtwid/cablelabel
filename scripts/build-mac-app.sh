@@ -60,10 +60,10 @@ iconutil -c icns build/icon.iconset -o build/CableLabelmaker.icns
   --name "Cable Labelmaker" \
   --osx-bundle-identifier "io.github.twidtwid.cablelabel" \
   --icon build/CableLabelmaker.icns \
-  --add-binary "bin/ptouch:bin" \
-  --add-data "web:web" \
-  --add-data "THIRD_PARTY_NOTICES.md:." \
-  --add-data "${ptouch_license}:licenses" \
+  --add-binary "$project_dir/bin/ptouch:bin" \
+  --add-data "$project_dir/web:web" \
+  --add-data "$project_dir/THIRD_PARTY_NOTICES.md:." \
+  --add-data "$project_dir/${ptouch_license}:licenses" \
   --collect-all PIL \
   main.py
 

@@ -37,6 +37,10 @@ actual_version="$(tr -d '[:space:]' <"$bundle_path/_internal/VERSION")"
 [[ "$actual_version" == "$expected_version" ]] || \
   fail "expected version $expected_version, found $actual_version"
 
+cli_version="$($app_executable --version)"
+[[ "$cli_version" == "cablelabel $expected_version" ]] || \
+  fail "CLI version is incorrect: $cli_version"
+
 case "$(uname -m)" in
   x86_64)
     [[ "$(file "$app_executable")" == *x86-64* ]] || fail "application is not x86_64"
@@ -62,6 +66,9 @@ cleanup() {
   rm -f "$preview_path" "$app_log"
 }
 trap cleanup EXIT
+
+"$app_executable" --json preview "LINUX CLI SMOKE" --output "$preview_path" >/dev/null
+[[ "$(file "$preview_path")" == *"PNG image data"* ]] || fail "CLI preview is not a PNG"
 
 port=$((20000 + $$ % 20000))
 CABLELABEL_PORT="$port" CABLELABEL_OPEN_BROWSER=0 \

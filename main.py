@@ -1,5 +1,5 @@
-from cable_labelmaker.server import main
+from cable_labelmaker.cli import main
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

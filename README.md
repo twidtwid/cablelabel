@@ -31,9 +31,10 @@ scripts/install-macos-service.sh
 ```
 
 The installer copies the app to `/Applications/Cable Labelmaker.app`, installs
-a LaunchAgent, and keeps it available at <http://127.0.0.1:9462/>. The app is
-locally signed but not notarized. macOS can require one Control-click, **Open**,
-and confirmation on first launch.
+a LaunchAgent, exposes the CLI at `~/.local/bin/cablelabel`, and keeps the web
+app available at <http://127.0.0.1:9462/>. The app is locally signed but not
+notarized. macOS can require one Control-click, **Open**, and confirmation on
+first launch.
 
 ## Build and install on Linux
 
@@ -58,11 +59,11 @@ publish a Linux arm64 binary. The build compiles its pinned `v0.5.0` source.
 Linux bundles include a pinned Roboto Condensed Bold font and its Apache 2.0
 license, so previews and prints do not depend on system-installed fonts.
 
-The installer places versioned bundles under `~/.local/opt/cablelabel`, enables
-`cablelabel.service`, and checks <http://127.0.0.1:9462/> before reporting
-success. It installs the PT-D600 udev rule with the service user as its stable
-device owner, while retaining desktop-session access. It uses `sudo` only to
-install and reload that rule.
+The installer places versioned bundles under `~/.local/opt/cablelabel`, exposes
+the CLI at `~/.local/bin/cablelabel`, enables `cablelabel.service`, and checks
+<http://127.0.0.1:9462/> before reporting success. It installs the PT-D600 udev
+rule with the service user as its stable device owner, while retaining
+desktop-session access. It uses `sudo` only to install and reload that rule.
 
 For a headless machine that must start the user service before login, enable
 lingering once:
@@ -87,6 +88,91 @@ OFFICE -> SWITCH 08
 ```
 
 Clean the cable, wrap firmly, and overlap at least 12 mm of tape onto itself.
+
+## Command line
+
+The installer provides the same `cablelabel` command on macOS and Linux. If
+`~/.local/bin` is not already on your `PATH`, add it in your shell profile:
+
+```sh
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+Check the connected printer and make a preview without using tape:
+
+```sh
+cablelabel status
+cablelabel preview "AT&T UPLINK" --output att-uplink.png
+```
+
+Printing is an explicit command. Multiple arguments form a batch, `--copies`
+repeats each label, and `--stdin` reads one label per nonblank line:
+
+```sh
+cablelabel print "AT&T UPLINK" "COMCAST UPLINK"
+printf '%s\n' "ROUTER | PORT 3" "SWITCH | PORT 9" | cablelabel print --stdin
+```
+
+Quote labels containing spaces, `|`, or other shell metacharacters. Use
+`--length MM` on `preview` or `print` to select a 39–70 mm wrap length. Run
+`cablelabel serve --help` for web-server options.
+
+## For agents
+
+Install from a checked-out release exactly as a human would:
+
+```sh
+# macOS
+scripts/build-mac-app.sh && scripts/install-macos-service.sh
+
+# Linux
+scripts/build-linux-app.sh && scripts/install-linux-service.sh
+```
+
+For source-tree automation without installing, replace `cablelabel` in the
+examples below with:
+
+```sh
+uv run --with-requirements requirements.txt python main.py
+```
+
+Pass global `--json` before the subcommand. Successful and failed commands emit
+one JSON object on stdout, making it safe to parse without scraping prose:
+
+```sh
+cablelabel --json status
+cablelabel --json preview "ROUTER | PORT 3" --output /tmp/router-p3.png
+cablelabel --json print "AT&T UPLINK"
+printf '%s\n' "ONE" "TWO | PORT 2" | cablelabel --json print --stdin
+```
+
+Only the `print` subcommand produces physical output. `status`, `preview`,
+`--help`, and `--version` never print a label. Do not invoke `print` merely to
+test connectivity; use `status` and inspect a `preview` PNG first.
+
+Exit codes are stable automation contracts:
+
+| Code | Meaning |
+|---:|---|
+| `0` | Success |
+| `1` | Unexpected internal failure |
+| `2` | Invalid arguments, label text, length, or output path |
+| `3` | Printer unavailable or failure before any label printed |
+| `4` | Partial batch: at least one label printed before failure |
+
+On a partial batch, the JSON object includes `printed`, `total`, zero-based
+`failed_index`, and `failed_label`. An agent should not blindly retry the whole
+batch because doing so would duplicate labels that already printed.
+
+The long-running server can also be launched deterministically:
+
+```sh
+cablelabel --json serve --port 9462 --no-browser
+```
+
+It emits its startup JSON object before serving. Stop it with `SIGINT` or
+`SIGTERM`; do not infer readiness from process existence when an HTTP health
+check against the emitted `url` is available.
 
 ## Tailnet access
 
