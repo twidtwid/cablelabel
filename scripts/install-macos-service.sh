@@ -64,15 +64,75 @@ if [[ ! -d "$app_source" ]]; then
   exit 1
 fi
 
+source_info_plist="$app_source/Contents/Info.plist"
+[[ -s "$source_info_plist" ]] || {
+  echo "App Info.plist is missing: $source_info_plist" >&2
+  exit 1
+}
+/usr/bin/plutil -lint "$source_info_plist" >/dev/null
+app_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$source_info_plist")"
+validate_app_version "$app_version" || {
+  echo "App version is invalid: $app_version" >&2
+  exit 1
+}
+
+user_bin="$HOME/.local/bin"
+cli_link="$user_bin/cablelabel"
+rollback_root="$(mktemp -d)"
+staged_app="/Applications/.Cable Labelmaker.app.install.$$"
+backup_app="/Applications/.Cable Labelmaker.app.rollback.$$"
+install_succeeded=0
+app_replaced=0
+previous_service_loaded=0
+previous_legacy_loaded=0
+
+/bin/launchctl print "$domain/$service_label" >/dev/null 2>&1 && previous_service_loaded=1
+/bin/launchctl print "$domain/$legacy_service_label" >/dev/null 2>&1 && previous_legacy_loaded=1
+[[ -e "$launch_agent" || -L "$launch_agent" ]] && \
+  /bin/cp -a "$launch_agent" "$rollback_root/launch-agent"
+[[ -e "$cli_link" || -L "$cli_link" ]] && \
+  /bin/cp -a "$cli_link" "$rollback_root/cli"
+
+restore_path() {
+  local backup="$1"
+  local destination="$2"
+
+  /bin/rm -rf "$destination"
+  if [[ -e "$backup" || -L "$backup" ]]; then
+    /bin/cp -a "$backup" "$destination"
+  fi
+}
+
+finish_install() {
+  local exit_code=$?
+  set +e
+  if (( ! install_succeeded )); then
+    /bin/launchctl bootout "$domain/$service_label" >/dev/null 2>&1 || true
+    if (( app_replaced )); then
+      /bin/rm -rf "$app_destination"
+      [[ -e "$backup_app" ]] && /bin/mv "$backup_app" "$app_destination"
+    fi
+    restore_path "$rollback_root/launch-agent" "$launch_agent"
+    restore_path "$rollback_root/cli" "$cli_link"
+    if (( previous_service_loaded )) && [[ -s "$launch_agent" ]]; then
+      /bin/launchctl enable "$domain/$service_label" >/dev/null 2>&1 || true
+      /bin/launchctl bootstrap "$domain" "$launch_agent" >/dev/null 2>&1 || true
+    else
+      /bin/launchctl disable "$domain/$service_label" >/dev/null 2>&1 || true
+    fi
+    if (( previous_legacy_loaded )) && [[ -s "$legacy_launch_agent" ]]; then
+      /bin/launchctl enable "$domain/$legacy_service_label" >/dev/null 2>&1 || true
+      /bin/launchctl bootstrap "$domain" "$legacy_launch_agent" >/dev/null 2>&1 || true
+    fi
+  fi
+  /bin/rm -rf "$staged_app" "$backup_app" "$rollback_root"
+  return "$exit_code"
+}
+trap finish_install EXIT
+
 /bin/launchctl bootout "$domain/$service_label" 2>/dev/null || true
 /bin/launchctl bootout "$domain/$legacy_service_label" 2>/dev/null || true
 /bin/launchctl disable "$domain/$legacy_service_label" 2>/dev/null || true
-if [[ -e "$legacy_launch_agent" || -L "$legacy_launch_agent" ]]; then
-  legacy_archive="$launch_agents/Archived"
-  mkdir -p "$legacy_archive"
-  /bin/mv "$legacy_launch_agent" \
-    "$legacy_archive/$legacy_service_label.plist.$(/bin/date +%Y%m%d-%H%M%S)"
-fi
 if /usr/bin/pgrep -f -x "$installed_executable" >/dev/null 2>&1; then
   /usr/bin/pkill -TERM -f -x "$installed_executable"
   for _attempt in {1..50}; do
@@ -88,12 +148,17 @@ if /usr/bin/pgrep -f -x "$installed_executable" >/dev/null 2>&1; then
 fi
 
 if [[ "$app_source" != "$app_destination" ]]; then
-  /usr/bin/ditto "$app_source" "$app_destination"
+  /bin/rm -rf "$staged_app" "$backup_app"
+  /usr/bin/ditto "$app_source" "$staged_app"
+  if [[ -e "$app_destination" ]]; then
+    /bin/mv "$app_destination" "$backup_app"
+  fi
+  /bin/mv "$staged_app" "$app_destination"
+  app_replaced=1
 fi
 
-user_bin="$HOME/.local/bin"
 mkdir -p "$user_bin"
-ln -sfn "$app_destination/Contents/MacOS/Cable Labelmaker" "$user_bin/cablelabel"
+ln -sfn "$app_destination/Contents/MacOS/Cable Labelmaker" "$cli_link"
 
 mkdir -p "$launch_agents" "$logs"
 /usr/bin/ditto "$template" "$launch_agent"
@@ -108,8 +173,9 @@ mkdir -p "$launch_agents" "$logs"
 /bin/launchctl enable "$domain/$service_label"
 /bin/launchctl bootstrap "$domain" "$launch_agent"
 
-health_url="http://127.0.0.1:$port/"
-if ! wait_for_http "$health_url" ||
+health_url="http://127.0.0.1:$port/api/health"
+expected_health="{\"name\": \"cablelabel\", \"version\": \"$app_version\"}"
+if ! wait_for_http_body "$health_url" "$expected_health" ||
   ! /bin/launchctl print "$domain/$service_label" 2>/dev/null | /usr/bin/awk '
     $1 == "state" && $2 == "=" && $3 == "running" { found = 1 }
     END { exit !found }
@@ -126,7 +192,16 @@ if ! wait_for_http "$health_url" ||
   exit 1
 fi
 
-echo "Installed Cable Labelmaker and started $service_label at $health_url"
+if [[ -e "$legacy_launch_agent" || -L "$legacy_launch_agent" ]]; then
+  legacy_archive="$launch_agents/Archived"
+  mkdir -p "$legacy_archive"
+  /bin/mv "$legacy_launch_agent" \
+    "$legacy_archive/$legacy_service_label.plist.$(/bin/date +%Y%m%d-%H%M%S)"
+fi
+
+install_succeeded=1
+app_url="http://127.0.0.1:$port/"
+echo "Installed Cable Labelmaker $app_version and started $service_label at $app_url"
 if [[ -n "$trusted_origins" ]]; then
   echo "Trusted remote origin(s): $trusted_origins"
 else
