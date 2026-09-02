@@ -109,6 +109,36 @@ upgrade_bundle="$test_root/bundle-0.2.1"
 make_bundle "$first_bundle" 0.2.0
 make_bundle "$upgrade_bundle" 0.2.1
 
+fresh_failure_home="$test_root/fresh-failure-home"
+fresh_failure_marker="$test_root/fresh-restart-failed"
+fresh_failure_bundle="$test_root/bundle-0.3.0"
+mkdir -p "$fresh_failure_home"
+make_bundle "$fresh_failure_bundle" 0.3.0
+if HOME="$fresh_failure_home" \
+  PATH="$fake_bin:/usr/bin:/bin" \
+  TEST_SERVICE_USER="cablelabel_tester" \
+  TEST_SYSTEMCTL_LOG="$systemctl_log" \
+  TEST_SUDO_LOG="$sudo_log" \
+  TEST_INSTALLED_UDEV_RULE="$installed_udev_rule" \
+  TEST_HEALTH_VERSION="0.3.0" \
+  TEST_FAIL_RESTART_ONCE="$fresh_failure_marker" \
+  "$project_dir/scripts/install-linux-service.sh" --bundle "$fresh_failure_bundle" \
+  >"$test_root/failed-fresh-install.out" 2>&1; then
+  echo "Installer accepted a failed fresh service restart" >&2
+  exit 1
+fi
+for leftover in \
+  "$fresh_failure_home/.local/opt/cablelabel/current" \
+  "$fresh_failure_home/.local/opt/cablelabel/0.3.0" \
+  "$fresh_failure_home/.local/bin/cablelabel" \
+  "$fresh_failure_home/.config/systemd/user/cablelabel.service" \
+  "$fresh_failure_home/.config/cablelabel/environment"; do
+  if [[ -e "$leftover" || -L "$leftover" ]]; then
+    echo "Fresh-install rollback left behind $leftover" >&2
+    exit 1
+  fi
+done
+
 run_installer "$first_bundle"
 assert_service_sequence "first install"
 [[ "$(readlink "$test_home/.local/opt/cablelabel/current")" == \

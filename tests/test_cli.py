@@ -414,6 +414,23 @@ class CliTests(unittest.TestCase):
             json.loads(stdout),
         )
 
+    def test_json_serve_accepts_ephemeral_port_for_smoke_tests(self):
+        created = {}
+
+        def server_factory(address, printer=None, trusted_origins=()):
+            created["address"] = address
+            return FakeServer((address[0], 23456))
+
+        code, stdout, stderr = self._run_serve_with_factory(
+            ["--json", "serve", "--port", "0", "--no-browser"],
+            server_factory,
+        )
+
+        self.assertEqual(cli.EXIT_OK, code)
+        self.assertEqual("", stderr)
+        self.assertEqual(("127.0.0.1", 0), created["address"])
+        self.assertEqual("http://127.0.0.1:23456", json.loads(stdout)["url"])
+
     def test_json_serve_runtime_failure_keeps_one_stdout_object(self):
         class FailingServer(FakeServer):
             def serve_forever(self):

@@ -8,6 +8,11 @@ fail() {
   exit 1
 }
 
+require_file() {
+  local path="$1"
+  [[ -s "$path" ]] || fail "missing or empty file: $path"
+}
+
 [[ -n "$archive_path" ]] || fail "usage: $(basename "$0") ARCHIVE.tar.gz"
 [[ -s "$archive_path" ]] || fail "archive not found or empty: $archive_path"
 
@@ -31,8 +36,15 @@ release_root="$extract_dir/$release_name"
 installer="$release_root/scripts/install-linux-service.sh"
 
 [[ -x "$installer" ]] || fail "installer is missing or not executable"
-[[ -s "$release_root/scripts/lib/common.sh" ]] || fail "shared installer helper is missing"
+require_file "$release_root/scripts/lib/common.sh"
+require_file "$release_root/linux/cablelabel.service"
+require_file "$release_root/linux/70-cablelabel-pt-d600.rules"
 [[ -x "$release_root/dist/cablelabel/cablelabel" ]] || fail "default application bundle is missing"
+
+awk '$0 == "ExecStart=%h/.local/opt/cablelabel/current/cablelabel" { found = 1 } END { exit !found }' \
+  "$release_root/linux/cablelabel.service" || fail "systemd service has an unexpected ExecStart"
+awk 'index($0, "OWNER=\"@CABLELABEL_USER@\"") { found = 1 } END { exit !found }' \
+  "$release_root/linux/70-cablelabel-pt-d600.rules" || fail "udev rule is missing its user placeholder"
 
 "$installer" --verify-only
 

@@ -64,6 +64,17 @@ done
   exit 1
 }
 
+service_template="$project_dir/linux/cablelabel.service"
+udev_rule_template="$project_dir/linux/70-cablelabel-pt-d600.rules"
+[[ -s "$service_template" ]] || {
+  echo "systemd service template is missing: $service_template" >&2
+  exit 1
+}
+if (( install_udev )) && [[ ! -s "$udev_rule_template" ]]; then
+  echo "PT-D600 udev rule template is missing: $udev_rule_template" >&2
+  exit 1
+fi
+
 version_file="$bundle_source/_internal/VERSION"
 [[ -s "$version_file" ]] || {
   echo "Bundle version file is missing: $version_file" >&2
@@ -96,26 +107,58 @@ service_dir="$HOME/.config/systemd/user"
 config_dir="$HOME/.config/cablelabel"
 service_destination="$service_dir/cablelabel.service"
 environment_file="$config_dir/environment"
-udev_rule_template="$project_dir/linux/70-cablelabel-pt-d600.rules"
 rendered_udev_rule="$config_dir/70-cablelabel-pt-d600.rules"
 previous_current=""
 rollback_root="$(mktemp -d)"
 install_succeeded=0
+version_destination_existed=0
 
 if [[ -L "$app_root/current" ]]; then
   previous_current="$(readlink "$app_root/current")"
 fi
 [[ -f "$service_destination" ]] && cp -p "$service_destination" "$rollback_root/service"
 [[ -f "$environment_file" ]] && cp -p "$environment_file" "$rollback_root/environment"
+[[ -e "$user_bin/cablelabel" || -L "$user_bin/cablelabel" ]] && \
+  cp -a "$user_bin/cablelabel" "$rollback_root/cli"
+[[ -f "$rendered_udev_rule" ]] && \
+  cp -p "$rendered_udev_rule" "$rollback_root/rendered-udev"
+[[ -e "$version_destination" ]] && version_destination_existed=1
+
+restore_path() {
+  local backup="$1"
+  local destination="$2"
+
+  if [[ -e "$destination" || -L "$destination" ]]; then
+    unlink "$destination" 2>/dev/null || true
+  fi
+  if [[ -e "$backup" || -L "$backup" ]]; then
+    cp -a "$backup" "$destination"
+  fi
+}
 
 finish_install() {
   local exit_code=$?
-  if (( ! install_succeeded )) && [[ -n "$previous_current" ]]; then
-    ln -sfn "$previous_current" "$app_root/current"
-    [[ -f "$rollback_root/service" ]] && cp -p "$rollback_root/service" "$service_destination"
-    [[ -f "$rollback_root/environment" ]] && cp -p "$rollback_root/environment" "$environment_file"
+  set +e
+  if (( ! install_succeeded )); then
+    if [[ -n "$previous_current" ]]; then
+      ln -sfn "$previous_current" "$app_root/current"
+    else
+      unlink "$app_root/current" 2>/dev/null || true
+    fi
+    restore_path "$rollback_root/cli" "$user_bin/cablelabel"
+    restore_path "$rollback_root/service" "$service_destination"
+    restore_path "$rollback_root/environment" "$environment_file"
+    restore_path "$rollback_root/rendered-udev" "$rendered_udev_rule"
+    if (( ! version_destination_existed )); then
+      rm -rf "$version_destination"
+    fi
     systemctl --user daemon-reload >/dev/null 2>&1 || true
-    systemctl --user restart cablelabel.service >/dev/null 2>&1 || true
+    if [[ -n "$previous_current" ]]; then
+      systemctl --user restart cablelabel.service >/dev/null 2>&1 || true
+    else
+      systemctl --user stop cablelabel.service >/dev/null 2>&1 || true
+      systemctl --user disable cablelabel.service >/dev/null 2>&1 || true
+    fi
   fi
   if command -v trash >/dev/null; then
     trash "$rollback_root"
@@ -130,7 +173,7 @@ install -d "$version_destination" "$user_bin" "$service_dir" "$config_dir"
 cp -a "$bundle_source/." "$version_destination/"
 ln -sfn "$version_destination" "$app_root/current"
 ln -sfn "$app_root/current/cablelabel" "$user_bin/cablelabel"
-install -m 644 "$project_dir/linux/cablelabel.service" "$service_destination"
+install -m 644 "$service_template" "$service_destination"
 {
   printf 'CABLELABEL_PORT=%s\n' "$port"
   printf 'CABLELABEL_OPEN_BROWSER=0\n'

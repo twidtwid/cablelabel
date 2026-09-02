@@ -70,15 +70,20 @@ trap cleanup EXIT
 "$app_executable" --json preview "LINUX CLI SMOKE" --output "$preview_path" >/dev/null
 [[ "$(file "$preview_path")" == *"PNG image data"* ]] || fail "CLI preview is not a PNG"
 
-port=$((20000 + $$ % 20000))
-CABLELABEL_PORT="$port" CABLELABEL_OPEN_BROWSER=0 \
-  "$app_executable" >"$app_log" 2>&1 &
+"$app_executable" --json serve --port 0 --no-browser >"$app_log" 2>&1 &
 app_pid=$!
 
 healthy=0
 for _attempt in {1..20}; do
-  if curl --fail --silent --connect-timeout 1 --max-time 2 \
-    "http://127.0.0.1:$port/" >/dev/null; then
+  if ! kill -0 "$app_pid" 2>/dev/null; then
+    cat "$app_log" >&2
+    fail "packaged server exited before becoming healthy"
+  fi
+  app_url="$(sed -n 's/.*"url": "\([^"]*\)".*/\1/p' "$app_log" | head -n 1)"
+  if [[ -n "$app_url" ]] &&
+    curl --fail --silent --connect-timeout 1 --max-time 2 \
+      "$app_url/api/health" | \
+      cmp -s - <(printf '{"name": "cablelabel", "version": "%s"}' "$actual_version"); then
     healthy=1
     break
   fi
@@ -92,8 +97,9 @@ fi
 curl --fail --silent --show-error --max-time 5 \
   -H 'Content-Type: application/json' \
   -d '{"label":"LINUX BUNDLE SMOKE","length":48}' \
-  "http://127.0.0.1:$port/api/preview" \
+  "$app_url/api/preview" \
   -o "$preview_path"
+kill -0 "$app_pid" 2>/dev/null || fail "packaged server exited during preview"
 [[ "$(file "$preview_path")" == *"PNG image data"* ]] || fail "preview is not a PNG"
 
 echo "Verified: $bundle_path (version $actual_version, $(uname -m))"
