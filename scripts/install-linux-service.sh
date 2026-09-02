@@ -108,9 +108,11 @@ config_dir="$HOME/.config/cablelabel"
 service_destination="$service_dir/cablelabel.service"
 environment_file="$config_dir/environment"
 rendered_udev_rule="$config_dir/70-cablelabel-pt-d600.rules"
+system_udev_rule="/etc/udev/rules.d/70-cablelabel-pt-d600.rules"
 previous_current=""
 rollback_root="$(mktemp -d)"
 install_succeeded=0
+system_udev_rule_changed=0
 version_destination_existed=0
 
 if [[ -L "$app_root/current" ]]; then
@@ -149,6 +151,16 @@ finish_install() {
     restore_path "$rollback_root/service" "$service_destination"
     restore_path "$rollback_root/environment" "$environment_file"
     restore_path "$rollback_root/rendered-udev" "$rendered_udev_rule"
+    if (( system_udev_rule_changed )); then
+      if [[ -f "$rollback_root/system-udev" ]]; then
+        sudo install -Dm644 "$rollback_root/system-udev" "$system_udev_rule" || true
+      else
+        sudo unlink "$system_udev_rule" 2>/dev/null || true
+      fi
+      sudo udevadm control --reload-rules >/dev/null 2>&1 || true
+      sudo udevadm trigger --subsystem-match=usb --attr-match=idVendor=04f9 \
+        --attr-match=idProduct=2074 >/dev/null 2>&1 || true
+    fi
     if (( ! version_destination_existed )); then
       rm -rf "$version_destination"
     fi
@@ -169,18 +181,6 @@ finish_install() {
 }
 trap finish_install EXIT
 
-install -d "$version_destination" "$user_bin" "$service_dir" "$config_dir"
-cp -a "$bundle_source/." "$version_destination/"
-ln -sfn "$version_destination" "$app_root/current"
-ln -sfn "$app_root/current/cablelabel" "$user_bin/cablelabel"
-install -m 644 "$service_template" "$service_destination"
-{
-  printf 'CABLELABEL_PORT=%s\n' "$port"
-  printf 'CABLELABEL_OPEN_BROWSER=0\n'
-  printf 'CABLELABEL_TRUSTED_ORIGINS=%s\n' "$trusted_origins"
-} >"$environment_file"
-chmod 600 "$environment_file"
-
 if (( install_udev )); then
   command -v udevadm >/dev/null || {
     echo "udevadm is required for PT-D600 USB permissions. Use --skip-udev only when permissions are already configured." >&2
@@ -195,12 +195,31 @@ if (( install_udev )); then
     echo "Cannot install the PT-D600 udev rule for invalid service user: $service_user" >&2
     exit 1
   }
+  if sudo test -e "$system_udev_rule"; then
+    sudo cp -p "$system_udev_rule" "$rollback_root/system-udev"
+  fi
+fi
+
+install -d "$version_destination" "$user_bin" "$service_dir" "$config_dir"
+cp -a "$bundle_source/." "$version_destination/"
+ln -sfn "$version_destination" "$app_root/current"
+ln -sfn "$app_root/current/cablelabel" "$user_bin/cablelabel"
+install -m 644 "$service_template" "$service_destination"
+{
+  printf 'CABLELABEL_PORT=%s\n' "$port"
+  printf 'CABLELABEL_OPEN_BROWSER=0\n'
+  printf 'CABLELABEL_TRUSTED_ORIGINS=%s\n' "$trusted_origins"
+} >"$environment_file"
+chmod 600 "$environment_file"
+
+if (( install_udev )); then
   udev_rule="$(<"$udev_rule_template")"
   udev_rule="${udev_rule//@CABLELABEL_USER@/$service_user}"
   printf '%s\n' "$udev_rule" >"$rendered_udev_rule"
   chmod 644 "$rendered_udev_rule"
   sudo install -Dm644 "$rendered_udev_rule" \
-    /etc/udev/rules.d/70-cablelabel-pt-d600.rules
+    "$system_udev_rule"
+  system_udev_rule_changed=1
   sudo udevadm control --reload-rules
   sudo udevadm trigger --subsystem-match=usb --attr-match=idVendor=04f9 \
     --attr-match=idProduct=2074

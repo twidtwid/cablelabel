@@ -411,7 +411,12 @@ def _json_discovery(arguments, parser, stdout, stderr):
     if "--json" not in arguments:
         return None
     option_arguments = arguments[: arguments.index("--")] if "--" in arguments else arguments
-    command_names = {"status", "preview", "print", "serve"}
+    subparsers = next(
+        action
+        for action in parser._actions
+        if isinstance(action, argparse._SubParsersAction)
+    )
+    command_names = subparsers.choices
     first_positional_index = next(
         (
             index
@@ -428,25 +433,6 @@ def _json_discovery(arguments, parser, stdout, stderr):
     version_index = (
         option_arguments.index("--version") if "--version" in option_arguments else None
     )
-    discovery_indices = [
-        index
-        for index in (
-            version_index,
-            *(
-                option_arguments.index(flag)
-                for flag in ("--help", "-h")
-                if flag in option_arguments
-            ),
-        )
-        if index is not None
-    ]
-    if command_index is None and discovery_indices:
-        first_discovery = min(discovery_indices)
-        if any(
-            not argument.startswith("-")
-            for argument in option_arguments[:first_discovery]
-        ):
-            return None
     if version_index is not None and (
         command_index is None or version_index < command_index
     ):
@@ -474,11 +460,6 @@ def _json_discovery(arguments, parser, stdout, stderr):
     )
     help_parser = parser
     if command is not None:
-        subparsers = next(
-            action
-            for action in parser._actions
-            if isinstance(action, argparse._SubParsersAction)
-        )
         help_parser = subparsers.choices[command]
     _emit(
         {

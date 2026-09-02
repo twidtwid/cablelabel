@@ -18,6 +18,7 @@ test_home="$test_root/home"
 systemctl_log="$test_root/systemctl.log"
 sudo_log="$test_root/sudo.log"
 installed_udev_rule="$test_root/installed.rules"
+system_udev_rule="$test_root/system.rules"
 mkdir -p "$fake_bin" "$test_home"
 
 cat >"$fake_bin/uname" <<'EOF'
@@ -51,9 +52,21 @@ EOF
 cat >"$fake_bin/sudo" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"$TEST_SUDO_LOG"
-if [[ "$1" == "install" ]]; then
-  cp "$3" "$TEST_INSTALLED_UDEV_RULE"
-fi
+case "$1" in
+  test)
+    [[ -e "$TEST_SYSTEM_UDEV_RULE" ]]
+    ;;
+  cp)
+    cp "$TEST_SYSTEM_UDEV_RULE" "$4"
+    ;;
+  install)
+    cp "$3" "$TEST_INSTALLED_UDEV_RULE"
+    cp "$3" "$TEST_SYSTEM_UDEV_RULE"
+    ;;
+  unlink)
+    unlink "$TEST_SYSTEM_UDEV_RULE"
+    ;;
+esac
 EOF
 
 cat >"$fake_bin/curl" <<'EOF'
@@ -100,6 +113,7 @@ run_installer() {
     TEST_SYSTEMCTL_LOG="$systemctl_log" \
     TEST_SUDO_LOG="$sudo_log" \
     TEST_INSTALLED_UDEV_RULE="$installed_udev_rule" \
+    TEST_SYSTEM_UDEV_RULE="$system_udev_rule" \
     TEST_HEALTH_VERSION="$version" \
     "$project_dir/scripts/install-linux-service.sh" --bundle "$bundle"
 }
@@ -120,6 +134,7 @@ if HOME="$fresh_failure_home" \
   TEST_SYSTEMCTL_LOG="$systemctl_log" \
   TEST_SUDO_LOG="$sudo_log" \
   TEST_INSTALLED_UDEV_RULE="$installed_udev_rule" \
+  TEST_SYSTEM_UDEV_RULE="$system_udev_rule" \
   TEST_HEALTH_VERSION="0.3.0" \
   TEST_FAIL_RESTART_ONCE="$fresh_failure_marker" \
   "$project_dir/scripts/install-linux-service.sh" --bundle "$fresh_failure_bundle" \
@@ -138,6 +153,10 @@ for leftover in \
     exit 1
   fi
 done
+[[ ! -e "$system_udev_rule" ]] || {
+  echo "Fresh-install rollback left behind the system udev rule" >&2
+  exit 1
+}
 
 run_installer "$first_bundle"
 assert_service_sequence "first install"
@@ -161,12 +180,14 @@ assert_service_sequence "upgrade"
 failed_bundle="$test_root/bundle-0.2.2"
 restart_marker="$test_root/restart-failed"
 make_bundle "$failed_bundle" 0.2.2
+printf 'original system rule\n' >"$system_udev_rule"
 if HOME="$test_home" \
   PATH="$fake_bin:/usr/bin:/bin" \
   TEST_SERVICE_USER="cablelabel_tester" \
   TEST_SYSTEMCTL_LOG="$systemctl_log" \
   TEST_SUDO_LOG="$sudo_log" \
   TEST_INSTALLED_UDEV_RULE="$installed_udev_rule" \
+  TEST_SYSTEM_UDEV_RULE="$system_udev_rule" \
   TEST_HEALTH_VERSION="0.2.2" \
   TEST_FAIL_RESTART_ONCE="$restart_marker" \
   "$project_dir/scripts/install-linux-service.sh" --bundle "$failed_bundle" \
@@ -174,6 +195,10 @@ if HOME="$test_home" \
   echo "Installer accepted a failed service restart" >&2
   exit 1
 fi
+[[ "$(<"$system_udev_rule")" == "original system rule" ]] || {
+  echo "Installer did not restore the previous system udev rule" >&2
+  exit 1
+}
 [[ "$(readlink "$test_home/.local/opt/cablelabel/current")" == \
   "$test_home/.local/opt/cablelabel/0.2.1" ]] || {
   echo "Installer did not restore the previous version after failure" >&2
@@ -196,6 +221,7 @@ if HOME="$test_home" \
   TEST_SYSTEMCTL_LOG="$systemctl_log" \
   TEST_SUDO_LOG="$sudo_log" \
   TEST_INSTALLED_UDEV_RULE="$installed_udev_rule" \
+  TEST_SYSTEM_UDEV_RULE="$system_udev_rule" \
   "$project_dir/scripts/install-linux-service.sh" --bundle "$upgrade_bundle" \
   >"$test_root/invalid-user.out" 2>&1; then
   echo "Installer accepted an unsafe service username" >&2

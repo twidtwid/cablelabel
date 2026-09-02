@@ -83,6 +83,7 @@ staged_app="/Applications/.Cable Labelmaker.app.install.$$"
 backup_app="/Applications/.Cable Labelmaker.app.rollback.$$"
 install_succeeded=0
 app_replaced=0
+backup_created=0
 previous_service_loaded=0
 previous_legacy_loaded=0
 
@@ -108,9 +109,11 @@ finish_install() {
   set +e
   if (( ! install_succeeded )); then
     /bin/launchctl bootout "$domain/$service_label" >/dev/null 2>&1 || true
-    if (( app_replaced )); then
+    if (( backup_created )); then
       /bin/rm -rf "$app_destination"
       [[ -e "$backup_app" ]] && /bin/mv "$backup_app" "$app_destination"
+    elif (( app_replaced )); then
+      /bin/rm -rf "$app_destination"
     fi
     restore_path "$rollback_root/launch-agent" "$launch_agent"
     restore_path "$rollback_root/cli" "$cli_link"
@@ -152,6 +155,7 @@ if [[ "$app_source" != "$app_destination" ]]; then
   /usr/bin/ditto "$app_source" "$staged_app"
   if [[ -e "$app_destination" ]]; then
     /bin/mv "$app_destination" "$backup_app"
+    backup_created=1
   fi
   /bin/mv "$staged_app" "$app_destination"
   app_replaced=1
