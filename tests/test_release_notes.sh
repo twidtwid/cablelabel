@@ -36,3 +36,23 @@ if "$project_dir/scripts/release-notes.sh" 9.9.9 "$fixture" >/dev/null 2>&1; the
   echo "Expected missing release version to fail" >&2
   exit 1
 fi
+
+cat >"$fixture" <<'EOF'
+# Changelog
+
+## 1.2.0 - 2026-09-02
+
+## 1.1.0 - 2026-08-01
+
+- Older item.
+EOF
+if "$project_dir/scripts/release-notes.sh" 1.2.0 "$fixture" >/dev/null 2>&1; then
+  echo "Expected an empty release section to fail" >&2
+  exit 1
+fi
+
+: >"$fixture"
+if "$project_dir/scripts/release-notes.sh" 1.2.0 "$fixture" >/dev/null 2>&1; then
+  echo "Expected an empty changelog to fail" >&2
+  exit 1
+fi

@@ -6,7 +6,9 @@ project_dir="${0:A:h:h}"
 source "$project_dir/scripts/lib/common.sh"
 script_name="${0:t}"
 app_source="$project_dir/dist/Cable Labelmaker.app"
-app_destination="/Applications/Cable Labelmaker.app"
+applications_dir="${CABLELABEL_TEST_APPLICATIONS_DIR:-/Applications}"
+app_destination="$applications_dir/Cable Labelmaker.app"
+launchctl_bin="${CABLELABEL_TEST_LAUNCHCTL:-/bin/launchctl}"
 service_label="io.github.twidtwid.cablelabel"
 legacy_service_label="com.todd.cable-labelmaker"
 installed_executable="$app_destination/Contents/MacOS/Cable Labelmaker"
@@ -78,17 +80,65 @@ validate_app_version "$app_version" || {
 
 user_bin="$HOME/.local/bin"
 cli_link="$user_bin/cablelabel"
-rollback_root="$(mktemp -d)"
-staged_app="/Applications/.Cable Labelmaker.app.install.$$"
-backup_app="/Applications/.Cable Labelmaker.app.rollback.$$"
+install_lock="$HOME/Library/Caches/CableLabel/install.lock"
+staged_app="$applications_dir/.Cable Labelmaker.app.install.$$"
+backup_app="$applications_dir/.Cable Labelmaker.app.rollback.$$"
 install_succeeded=0
-app_replaced=0
-backup_created=0
+mutation_started=0
+app_destination_existed=0
 previous_service_loaded=0
 previous_legacy_loaded=0
+previous_service_disabled=0
+previous_legacy_disabled=0
+legacy_archived_path=""
 
-/bin/launchctl print "$domain/$service_label" >/dev/null 2>&1 && previous_service_loaded=1
-/bin/launchctl print "$domain/$legacy_service_label" >/dev/null 2>&1 && previous_legacy_loaded=1
+mkdir -p "${install_lock:h}"
+lock_acquired=0
+release_install_lock() {
+  if (( lock_acquired )); then
+    /bin/rm -f "$install_lock"
+  fi
+}
+trap release_install_lock EXIT
+create_install_lock() {
+  (set -o noclobber; printf '%s\n' "$$" >"$install_lock") 2>/dev/null
+}
+if create_install_lock; then
+  lock_acquired=1
+else
+  lock_owner="$(tr -d '[:space:]' <"$install_lock" 2>/dev/null || true)"
+  if [[ "$lock_owner" == <-> ]] && ! kill -0 "$lock_owner" 2>/dev/null; then
+    stale_lock="${install_lock}.stale.$$"
+    if /bin/mv "$install_lock" "$stale_lock" 2>/dev/null; then
+      /bin/rm -rf "$stale_lock"
+      if create_install_lock; then
+        lock_acquired=1
+      fi
+    fi
+  fi
+fi
+if (( ! lock_acquired )); then
+  echo "Another Cable Labelmaker install is already running: $install_lock" >&2
+  exit 1
+fi
+rollback_root="$(mktemp -d)"
+
+"$launchctl_bin" print "$domain/$service_label" >/dev/null 2>&1 && previous_service_loaded=1
+"$launchctl_bin" print "$domain/$legacy_service_label" >/dev/null 2>&1 && previous_legacy_loaded=1
+disabled_services="$("$launchctl_bin" print-disabled "$domain" 2>/dev/null || true)"
+[[ -e "$app_destination" ]] && app_destination_existed=1
+if print -r -- "$disabled_services" | /usr/bin/awk -v label="$service_label" '
+  index($0, "\"" label "\" => true") { found = 1 }
+  END { exit !found }
+'; then
+  previous_service_disabled=1
+fi
+if print -r -- "$disabled_services" | /usr/bin/awk -v label="$legacy_service_label" '
+  index($0, "\"" label "\" => true") { found = 1 }
+  END { exit !found }
+'; then
+  previous_legacy_disabled=1
+fi
 [[ -e "$launch_agent" || -L "$launch_agent" ]] && \
   /bin/cp -a "$launch_agent" "$rollback_root/launch-agent"
 [[ -e "$cli_link" || -L "$cli_link" ]] && \
@@ -104,38 +154,78 @@ restore_path() {
   fi
 }
 
+rollback_failed=0
+try_rollback() {
+  local description="$1"
+  shift
+
+  if ! "$@"; then
+    echo "Rollback failed while attempting to $description." >&2
+    rollback_failed=1
+  fi
+}
+
 finish_install() {
   local exit_code=$?
   set +e
-  if (( ! install_succeeded )); then
-    /bin/launchctl bootout "$domain/$service_label" >/dev/null 2>&1 || true
-    if (( backup_created )); then
-      /bin/rm -rf "$app_destination"
-      [[ -e "$backup_app" ]] && /bin/mv "$backup_app" "$app_destination"
-    elif (( app_replaced )); then
-      /bin/rm -rf "$app_destination"
+  if (( ! install_succeeded && mutation_started )); then
+    "$launchctl_bin" bootout "$domain/$service_label" >/dev/null 2>&1 || true
+    if [[ -e "$backup_app" ]]; then
+      try_rollback "remove the failed app" /bin/rm -rf "$app_destination"
+      try_rollback "restore the previous app" /bin/mv "$backup_app" "$app_destination"
+    elif (( ! app_destination_existed )) && \
+      [[ -e "$app_destination" || -L "$app_destination" ]]; then
+      try_rollback "remove the failed app" /bin/rm -rf "$app_destination"
     fi
-    restore_path "$rollback_root/launch-agent" "$launch_agent"
-    restore_path "$rollback_root/cli" "$cli_link"
-    if (( previous_service_loaded )) && [[ -s "$launch_agent" ]]; then
-      /bin/launchctl enable "$domain/$service_label" >/dev/null 2>&1 || true
-      /bin/launchctl bootstrap "$domain" "$launch_agent" >/dev/null 2>&1 || true
+    try_rollback "restore the LaunchAgent" \
+      restore_path "$rollback_root/launch-agent" "$launch_agent"
+    try_rollback "restore the CLI link" restore_path "$rollback_root/cli" "$cli_link"
+    if [[ -n "$legacy_archived_path" && -e "$legacy_archived_path" && \
+      ! -e "$legacy_launch_agent" ]]; then
+      try_rollback "restore the legacy LaunchAgent" \
+        /bin/mv "$legacy_archived_path" "$legacy_launch_agent"
+    fi
+    if (( previous_service_disabled )); then
+      try_rollback "restore the service's disabled state" \
+        "$launchctl_bin" disable "$domain/$service_label"
     else
-      /bin/launchctl disable "$domain/$service_label" >/dev/null 2>&1 || true
+      try_rollback "re-enable the service" \
+        "$launchctl_bin" enable "$domain/$service_label"
+      if (( previous_service_loaded )) && [[ -s "$launch_agent" ]]; then
+        try_rollback "reload the previous service" \
+          "$launchctl_bin" bootstrap "$domain" "$launch_agent"
+      fi
     fi
-    if (( previous_legacy_loaded )) && [[ -s "$legacy_launch_agent" ]]; then
-      /bin/launchctl enable "$domain/$legacy_service_label" >/dev/null 2>&1 || true
-      /bin/launchctl bootstrap "$domain" "$legacy_launch_agent" >/dev/null 2>&1 || true
+    if (( previous_legacy_disabled )); then
+      try_rollback "restore the legacy service's disabled state" \
+        "$launchctl_bin" disable "$domain/$legacy_service_label"
+    else
+      try_rollback "re-enable the legacy service" \
+        "$launchctl_bin" enable "$domain/$legacy_service_label"
+      if (( previous_legacy_loaded )) && [[ -s "$legacy_launch_agent" ]]; then
+        try_rollback "reload the previous legacy service" \
+          "$launchctl_bin" bootstrap "$domain" "$legacy_launch_agent"
+      fi
     fi
   fi
+  if (( rollback_failed )); then
+    /bin/rm -rf "$staged_app"
+    echo "Cable Labelmaker rollback was incomplete; recovery files were preserved at:" >&2
+    echo "  $rollback_root" >&2
+    [[ -e "$backup_app" ]] && echo "  $backup_app" >&2
+    release_install_lock
+    return 1
+  fi
   /bin/rm -rf "$staged_app" "$backup_app" "$rollback_root"
+  release_install_lock
   return "$exit_code"
 }
 trap finish_install EXIT
 
-/bin/launchctl bootout "$domain/$service_label" 2>/dev/null || true
-/bin/launchctl bootout "$domain/$legacy_service_label" 2>/dev/null || true
-/bin/launchctl disable "$domain/$legacy_service_label" 2>/dev/null || true
+mutation_started=1
+"$launchctl_bin" bootout "$domain/$service_label" 2>/dev/null || true
+"$launchctl_bin" bootout "$domain/$legacy_service_label" 2>/dev/null || true
+"$launchctl_bin" disable "$domain/$legacy_service_label" 2>/dev/null || true
 if /usr/bin/pgrep -f -x "$installed_executable" >/dev/null 2>&1; then
   /usr/bin/pkill -TERM -f -x "$installed_executable"
   for _attempt in {1..50}; do
@@ -155,10 +245,8 @@ if [[ "$app_source" != "$app_destination" ]]; then
   /usr/bin/ditto "$app_source" "$staged_app"
   if [[ -e "$app_destination" ]]; then
     /bin/mv "$app_destination" "$backup_app"
-    backup_created=1
   fi
   /bin/mv "$staged_app" "$app_destination"
-  app_replaced=1
 fi
 
 mkdir -p "$user_bin"
@@ -174,13 +262,13 @@ mkdir -p "$launch_agents" "$logs"
 /usr/bin/plutil -replace StandardErrorPath -string "$logs/cablelabel.err.log" "$launch_agent"
 /usr/bin/plutil -lint "$launch_agent" >/dev/null
 
-/bin/launchctl enable "$domain/$service_label"
-/bin/launchctl bootstrap "$domain" "$launch_agent"
+"$launchctl_bin" enable "$domain/$service_label"
+"$launchctl_bin" bootstrap "$domain" "$launch_agent"
 
 health_url="http://127.0.0.1:$port/api/health"
 expected_health="{\"name\": \"cablelabel\", \"version\": \"$app_version\"}"
 if ! wait_for_http_body "$health_url" "$expected_health" ||
-  ! /bin/launchctl print "$domain/$service_label" 2>/dev/null | /usr/bin/awk '
+  ! "$launchctl_bin" print "$domain/$service_label" 2>/dev/null | /usr/bin/awk '
     $1 == "state" && $2 == "=" && $3 == "running" { found = 1 }
     END { exit !found }
   '; then
@@ -188,7 +276,7 @@ if ! wait_for_http_body "$health_url" "$expected_health" ||
   /usr/bin/curl --fail --silent --show-error --connect-timeout 1 --max-time 2 \
     "$health_url" >/dev/null || true
   echo "LaunchAgent state:" >&2
-  /bin/launchctl print "$domain/$service_label" >&2 || true
+  "$launchctl_bin" print "$domain/$service_label" >&2 || true
   if [[ -f "$logs/cablelabel.err.log" ]]; then
     echo "Recent Cable Labelmaker errors:" >&2
     /usr/bin/tail -n 40 "$logs/cablelabel.err.log" >&2
@@ -199,8 +287,8 @@ fi
 if [[ -e "$legacy_launch_agent" || -L "$legacy_launch_agent" ]]; then
   legacy_archive="$launch_agents/Archived"
   mkdir -p "$legacy_archive"
-  /bin/mv "$legacy_launch_agent" \
-    "$legacy_archive/$legacy_service_label.plist.$(/bin/date +%Y%m%d-%H%M%S)"
+  legacy_archived_path="$legacy_archive/$legacy_service_label.plist.$(/bin/date +%Y%m%d-%H%M%S)"
+  /bin/mv "$legacy_launch_agent" "$legacy_archived_path"
 fi
 
 install_succeeded=1

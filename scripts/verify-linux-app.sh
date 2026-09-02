@@ -10,11 +10,6 @@ fail() {
   exit 1
 }
 
-require_file() {
-  local path="$1"
-  [[ -s "$path" ]] || fail "missing or empty file: $path"
-}
-
 [[ -d "$bundle_path" ]] || fail "bundle not found: $bundle_path"
 if [[ -z "$expected_version" ]]; then
   expected_version="$(awk -F'"' '/^__version__ = / { print $2; exit }' \
@@ -22,20 +17,10 @@ if [[ -z "$expected_version" ]]; then
 fi
 [[ -n "$expected_version" ]] || fail "expected version was not provided or found"
 
+actual_version="$("$project_dir/scripts/verify-linux-bundle-layout.sh" \
+  "$bundle_path" "$expected_version")"
 app_executable="$bundle_path/cablelabel"
 ptouch_executable="$bundle_path/_internal/bin/ptouch"
-[[ -x "$app_executable" ]] || fail "application executable is missing or not executable"
-[[ -x "$ptouch_executable" ]] || fail "ptouch is missing or not executable"
-require_file "$bundle_path/_internal/web/index.html"
-require_file "$bundle_path/_internal/THIRD_PARTY_NOTICES.md"
-require_file "$bundle_path/_internal/licenses/ptouch-rs-GPL-3.0.txt"
-require_file "$bundle_path/_internal/fonts/RobotoCondensed-Bold.ttf"
-require_file "$bundle_path/_internal/licenses/Roboto-Apache-2.0.txt"
-require_file "$bundle_path/_internal/VERSION"
-
-actual_version="$(tr -d '[:space:]' <"$bundle_path/_internal/VERSION")"
-[[ "$actual_version" == "$expected_version" ]] || \
-  fail "expected version $expected_version, found $actual_version"
 
 cli_version="$($app_executable --version)"
 [[ "$cli_version" == "cablelabel $expected_version" ]] || \
