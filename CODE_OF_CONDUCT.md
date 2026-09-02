@@ -24,8 +24,9 @@ Project maintainers may remove, edit, or reject contributions and may
 temporarily or permanently ban participants whose behavior is inappropriate,
 threatening, offensive, or harmful.
 
-Report conduct concerns privately through the maintainer's GitHub profile.
-Reports will be reviewed promptly and handled as confidentially as practical.
+Report conduct concerns through the repository's private vulnerability reporting
+form. Start the report title with `[Conduct]`. Reports will be reviewed promptly
+and handled as confidentially as practical.
 
 This policy is adapted from the
 [Contributor Covenant, version 2.1](https://www.contributor-covenant.org/version/2/1/code_of_conduct.html).
