@@ -2,6 +2,16 @@
 
 Notable changes are listed newest first.
 
+## 0.3.1 - 2026-09-02
+
+- Made macOS and Linux service upgrades rollback safely after failed health checks.
+- Hardened release automation with least-privilege permissions, immutable actions,
+  curated notes, and archive checksums.
+- Added complete release-archive validation and collision-free packaged-app smoke tests.
+- Added stable printer failure reasons for agent control flow and stricter JSON command parsing.
+- Added anti-clickjacking response headers and hash-locked Python dependencies.
+- Improved private reporting and bug-report metadata for public contributors.
+
 ## 0.3.0 — 2026-08-23
 
 - Added a cross-platform `cablelabel` CLI for printer status, PNG previews,

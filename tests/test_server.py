@@ -80,6 +80,9 @@ class LabelmakerServerTests(unittest.TestCase):
     def test_home_page_is_served(self):
         with urllib.request.urlopen(self.base_url, timeout=2) as response:
             body = response.read().decode()
+            self.assertEqual("DENY", response.headers["X-Frame-Options"])
+            self.assertEqual("nosniff", response.headers["X-Content-Type-Options"])
+            self.assertEqual("frame-ancestors 'none'", response.headers["Content-Security-Policy"])
 
         self.assertIn("Cable Labelmaker", body)
         self.assertIn("Print All", body)
@@ -138,6 +141,9 @@ class LabelmakerServerTests(unittest.TestCase):
         self.assertEqual(3, payload["total"])
         self.assertEqual(1, payload["failed_index"])
         self.assertEqual("TWO", payload["failed_label"])
+        self.assertIn("other program", payload["error"])
+        self.assertEqual("not_found", payload["reason"])
+        self.assertTrue(payload["retryable"])
 
     def test_status_returns_friendly_printer_error(self):
         self.server.printer = FakePrinter(info_error="Device not found")
@@ -149,6 +155,8 @@ class LabelmakerServerTests(unittest.TestCase):
         self.assertEqual(503, error.exception.code)
         self.assertFalse(payload["connected"])
         self.assertIn("other program", payload["detail"])
+        self.assertEqual("not_found", payload["reason"])
+        self.assertTrue(payload["retryable"])
 
     def test_invalid_host_is_rejected(self):
         error = self.rejected_post(
@@ -230,6 +238,10 @@ class LabelmakerServerTests(unittest.TestCase):
             with self.assertRaises(urllib.error.HTTPError) as error:
                 urllib.request.urlopen(self.base_url + "/api/status", timeout=2)
             self.assertEqual(409, error.exception.code)
+            payload = json.load(error.exception)
+            self.assertEqual("A print job is running", payload["detail"])
+            self.assertEqual("busy", payload["reason"])
+            self.assertTrue(payload["retryable"])
         finally:
             release.set()
             print_thread.join(timeout=2)
@@ -245,7 +257,10 @@ class LabelmakerServerTests(unittest.TestCase):
             external_lock.release()
 
         self.assertEqual(409, error.exception.code)
-        self.assertEqual("A print job is already running", json.load(error.exception)["error"])
+        payload = json.load(error.exception)
+        self.assertEqual("A print job is already running", payload["error"])
+        self.assertEqual("busy", payload["reason"])
+        self.assertTrue(payload["retryable"])
         self.assertEqual([], self.printer.printed)
 
     def test_invalid_length_is_rejected(self):

@@ -188,6 +188,10 @@ On a partial batch, the JSON object includes `printed`, `total`, zero-based
 `failed_index`, and `failed_label`. An agent should not blindly retry the whole
 batch because doing so would duplicate labels that already printed.
 
+Printer failures also include a stable `reason` and `retryable` boolean. Reasons
+are `busy`, `not_found`, `access_denied`, `timeout`, `engine_unavailable`, and
+`command_failed`. Use these fields for control flow and keep `error` for humans.
+
 The long-running server can also be launched deterministically:
 
 ```sh
@@ -197,6 +201,9 @@ cablelabel --json serve --port 9462 --no-browser
 It emits its startup JSON object before serving. Stop it with `SIGINT` or
 `SIGTERM`; do not infer readiness from process existence when an HTTP health
 check against the emitted `url` is available.
+
+Tests and temporary automation can pass `--port 0`. The operating system then
+selects a free port, which is reported in the startup JSON.
 
 ## Tailnet access
 

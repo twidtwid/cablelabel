@@ -13,7 +13,7 @@ from .printer import (
     PTOUCH_BINARY,
     PrinterError,
     PtouchPrinter,
-    friendly_printer_error,
+    printer_error_details,
 )
 from .renderer import DEFAULT_LENGTH_MM, render_many, render_tape_preview
 from .server import (
@@ -60,9 +60,9 @@ def _port(value: str) -> int:
     try:
         port = int(value)
     except ValueError as exc:
-        raise argparse.ArgumentTypeError("port must be an integer from 1 to 65535") from exc
-    if not 1 <= port <= 65535:
-        raise argparse.ArgumentTypeError("port must be an integer from 1 to 65535")
+        raise argparse.ArgumentTypeError("port must be an integer from 0 to 65535") from exc
+    if not 0 <= port <= 65535:
+        raise argparse.ArgumentTypeError("port must be an integer from 0 to 65535")
     return port
 
 
@@ -142,10 +142,10 @@ def _printer_or_default(printer):
 
 def _status(args, printer, printer_lock, stdout, stderr):
     if not printer_lock.acquire(blocking=False):
-        error = friendly_printer_error("The printer is busy")
+        error = printer_error_details("The printer is busy")
         _emit(
-            {"command": "status", "connected": False, "error": error, "ok": False},
-            error,
+            {"command": "status", "connected": False, "ok": False, **error},
+            error["error"],
             json_output=args.json,
             stdout=stdout,
             stderr=stderr,
@@ -156,10 +156,10 @@ def _status(args, printer, printer_lock, stdout, stderr):
         try:
             detail = printer.info()
         except PrinterError as exc:
-            error = friendly_printer_error(str(exc))
+            error = printer_error_details(str(exc))
             _emit(
-                {"command": "status", "connected": False, "error": error, "ok": False},
-                error,
+                {"command": "status", "connected": False, "ok": False, **error},
+                error["error"],
                 json_output=args.json,
                 stdout=stdout,
                 stderr=stderr,
@@ -249,18 +249,19 @@ def _input_labels(args, stdin):
 
 
 def _print_failure(args, labels, index, error, stdout, stderr):
+    error_details = printer_error_details(error)
     payload = {
         "command": "print",
-        "error": error,
         "failed_index": index,
         "failed_label": labels[index],
         "ok": False,
         "printed": index,
         "total": len(labels),
+        **error_details,
     }
     _emit(
         payload,
-        f"{error} ({index} of {len(labels)} labels printed)",
+        f"{error_details['error']} ({index} of {len(labels)} labels printed)",
         json_output=args.json,
         stdout=stdout,
         stderr=stderr,
@@ -290,7 +291,7 @@ def _print(args, printer, printer_lock, stdin, stdout, stderr):
                 args,
                 labels,
                 0,
-                friendly_printer_error("The printer is busy"),
+                "The printer is busy",
                 stdout,
                 stderr,
             )
@@ -305,7 +306,7 @@ def _print(args, printer, printer_lock, stdin, stdout, stderr):
                         args,
                         labels,
                         index,
-                        friendly_printer_error(str(exc)),
+                        str(exc),
                         stdout,
                         stderr,
                     )
@@ -410,37 +411,28 @@ def _json_discovery(arguments, parser, stdout, stderr):
     if "--json" not in arguments:
         return None
     option_arguments = arguments[: arguments.index("--")] if "--" in arguments else arguments
-    command_names = {"status", "preview", "print", "serve"}
-    command_index = next(
+    subparsers = next(
+        action
+        for action in parser._actions
+        if isinstance(action, argparse._SubParsersAction)
+    )
+    command_names = subparsers.choices
+    first_positional_index = next(
         (
             index
             for index, argument in enumerate(option_arguments)
-            if argument in command_names
+            if not argument.startswith("-")
         ),
         None,
     )
+    if first_positional_index is not None and (
+        option_arguments[first_positional_index] not in command_names
+    ):
+        return None
+    command_index = first_positional_index
     version_index = (
         option_arguments.index("--version") if "--version" in option_arguments else None
     )
-    discovery_indices = [
-        index
-        for index in (
-            version_index,
-            *(
-                option_arguments.index(flag)
-                for flag in ("--help", "-h")
-                if flag in option_arguments
-            ),
-        )
-        if index is not None
-    ]
-    if command_index is None and discovery_indices:
-        first_discovery = min(discovery_indices)
-        if any(
-            not argument.startswith("-")
-            for argument in option_arguments[:first_discovery]
-        ):
-            return None
     if version_index is not None and (
         command_index is None or version_index < command_index
     ):
@@ -468,11 +460,6 @@ def _json_discovery(arguments, parser, stdout, stderr):
     )
     help_parser = parser
     if command is not None:
-        subparsers = next(
-            action
-            for action in parser._actions
-            if isinstance(action, argparse._SubParsersAction)
-        )
         help_parser = subparsers.choices[command]
     _emit(
         {

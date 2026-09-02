@@ -19,7 +19,7 @@ from .printer import (
     PTOUCH_BINARY,
     PrinterError,
     PtouchPrinter,
-    friendly_printer_error,
+    printer_error_details,
 )
 from .renderer import DEFAULT_LENGTH_MM, render_many, render_tape_preview
 
@@ -130,6 +130,9 @@ class LabelmakerHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Security-Policy", "frame-ancestors 'none'")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
         self.end_headers()
         self.wfile.write(body)
 
@@ -165,13 +168,29 @@ class LabelmakerHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/status":
             if not self.server.printer_lock.acquire(blocking=False):
-                self._json(409, {"connected": True, "detail": "A print job is running"})
+                self._json(
+                    409,
+                    {
+                        "connected": True,
+                        "detail": "A print job is running",
+                        "reason": "busy",
+                        "retryable": True,
+                    },
+                )
                 return
             try:
                 detail = self.server.printer.info()
                 self._json(200, {"connected": True, "detail": detail})
             except PrinterError as exc:
-                self._json(503, {"connected": False, "detail": friendly_printer_error(str(exc))})
+                error = printer_error_details(str(exc))
+                self._json(
+                    503,
+                    {
+                        "connected": False,
+                        "detail": error.pop("error"),
+                        **error,
+                    },
+                )
             finally:
                 self.server.printer_lock.release()
             return
@@ -192,7 +211,7 @@ class LabelmakerHandler(BaseHTTPRequestHandler):
         except (ValueError, TypeError) as exc:
             self._json(400, {"error": str(exc)})
         except PrinterError as exc:
-            self._json(503, {"error": friendly_printer_error(str(exc))})
+            self._json(503, printer_error_details(str(exc)))
         except Exception:
             self._json(500, {"error": "Cable Labelmaker encountered an unexpected error"})
 
@@ -214,7 +233,14 @@ class LabelmakerHandler(BaseHTTPRequestHandler):
             raise ValueError(f"Print batches are limited to {MAX_BATCH_SIZE} labels")
         length = _length(payload.get("length", DEFAULT_LENGTH_MM))
         if not self.server.printer_lock.acquire(blocking=False):
-            self._json(409, {"error": "A print job is already running"})
+            self._json(
+                409,
+                {
+                    "error": "A print job is already running",
+                    "reason": "busy",
+                    "retryable": True,
+                },
+            )
             return
         try:
             with tempfile.TemporaryDirectory(prefix="cable-labels-") as directory:
@@ -222,14 +248,15 @@ class LabelmakerHandler(BaseHTTPRequestHandler):
                     try:
                         self.server.printer.print_image(path)
                     except PrinterError as exc:
+                        error = printer_error_details(str(exc))
                         self._json(
                             503,
                             {
-                                "error": friendly_printer_error(str(exc)),
                                 "printed": index,
                                 "total": len(labels),
                                 "failed_index": index,
                                 "failed_label": labels[index],
+                                **error,
                             },
                         )
                         return

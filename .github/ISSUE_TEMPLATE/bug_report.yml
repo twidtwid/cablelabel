@@ -14,6 +14,35 @@ body:
     validations:
       required: true
   - type: input
+    id: version
+    attributes:
+      label: Cable Labelmaker version
+      description: Run `cablelabel --version` if the CLI is available.
+      placeholder: 0.3.1
+    validations:
+      required: true
+  - type: dropdown
+    id: install-source
+    attributes:
+      label: Installation source
+      options:
+        - GitHub release archive
+        - Source checkout
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: interface
+    attributes:
+      label: Interface
+      options:
+        - Command line
+        - Web interface
+        - Installer or service
+        - Build or release verification
+    validations:
+      required: true
+  - type: input
     id: operating-system
     attributes:
       label: Operating system
