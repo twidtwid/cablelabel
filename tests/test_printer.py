@@ -5,7 +5,12 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from cable_labelmaker.printer import PrinterLock, PtouchPrinter, PrinterError
+from cable_labelmaker.printer import (
+    PrinterError,
+    PrinterLock,
+    PtouchPrinter,
+    printer_error_details,
+)
 
 
 class PrinterLockTests(unittest.TestCase):
@@ -44,6 +49,23 @@ raise SystemExit(0 if lock.acquire(blocking=False) else 23)
 
 
 class PtouchPrinterTests(unittest.TestCase):
+    def test_printer_errors_have_stable_agent_metadata(self):
+        cases = (
+            ("Device not found", "not_found", True),
+            ("USB device busy", "busy", True),
+            ("Permission denied", "access_denied", False),
+            ("The print engine timed out", "timeout", True),
+            ("The print engine is missing or cannot run", "engine_unavailable", False),
+            ("Unexpected USB failure", "command_failed", False),
+        )
+
+        for detail, reason, retryable in cases:
+            with self.subTest(detail=detail):
+                result = printer_error_details(detail)
+                self.assertEqual(reason, result["reason"])
+                self.assertEqual(retryable, result["retryable"])
+                self.assertTrue(result["error"])
+
     def test_print_uses_argument_list_without_shell(self):
         printer = PtouchPrinter(Path("/tmp/ptouch"))
 

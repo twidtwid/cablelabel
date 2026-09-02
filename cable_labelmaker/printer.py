@@ -63,15 +63,44 @@ class PrinterLock:
 PRINTER_LOCK = PrinterLock()
 
 
+def printer_error_details(detail: str) -> dict:
+    """Return stable machine metadata and a useful human printer error."""
+    detail = detail.strip()
+    lower_detail = detail.lower()
+    if "timed out" in lower_detail or "timeout" in lower_detail:
+        return {"error": detail, "reason": "timeout", "retryable": True}
+    if (
+        "print engine is missing" in lower_detail
+        or "cannot run" in lower_detail
+        or "no such file" in lower_detail
+    ):
+        return {"error": detail, "reason": "engine_unavailable", "retryable": False}
+    if "device not found" in lower_detail or "pt-d600 not found" in lower_detail:
+        return {
+            "error": (
+                "PT-D600 not found. Connect its USB cable, power it on, and close "
+                "any other program using it before trying again."
+            ),
+            "reason": "not_found",
+            "retryable": True,
+        }
+    if "permission denied" in lower_detail or "access denied" in lower_detail:
+        return {
+            "error": "Cable Labelmaker does not have permission to access the PT-D600.",
+            "reason": "access_denied",
+            "retryable": False,
+        }
+    if "busy" in lower_detail or "resource temporarily unavailable" in lower_detail:
+        return {
+            "error": "The PT-D600 is busy. Close any other program using it, then try again.",
+            "reason": "busy",
+            "retryable": True,
+        }
+    return {"error": detail, "reason": "command_failed", "retryable": False}
+
+
 def friendly_printer_error(detail: str) -> str:
-    if "device not found" in detail.lower():
-        return (
-            "PT-D600 not found. Connect its USB cable, power it on, and close "
-            "any other program using it before trying again."
-        )
-    if "busy" in detail.lower() or "access" in detail.lower():
-        return "The PT-D600 is busy. Close any other program using it, then try again."
-    return detail.strip()
+    return printer_error_details(detail)["error"]
 
 
 class PtouchPrinter:

@@ -80,6 +80,8 @@ class LabelmakerServerTests(unittest.TestCase):
     def test_home_page_is_served(self):
         with urllib.request.urlopen(self.base_url, timeout=2) as response:
             body = response.read().decode()
+            self.assertEqual("DENY", response.headers["X-Frame-Options"])
+            self.assertEqual("frame-ancestors 'none'", response.headers["Content-Security-Policy"])
 
         self.assertIn("Cable Labelmaker", body)
         self.assertIn("Print All", body)
@@ -149,6 +151,8 @@ class LabelmakerServerTests(unittest.TestCase):
         self.assertEqual(503, error.exception.code)
         self.assertFalse(payload["connected"])
         self.assertIn("other program", payload["detail"])
+        self.assertEqual("not_found", payload["reason"])
+        self.assertTrue(payload["retryable"])
 
     def test_invalid_host_is_rejected(self):
         error = self.rejected_post(

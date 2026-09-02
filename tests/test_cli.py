@@ -91,6 +91,8 @@ class CliTests(unittest.TestCase):
         self.assertFalse(payload["ok"])
         self.assertFalse(payload["connected"])
         self.assertIn("PT-D600 not found", payload["error"])
+        self.assertEqual("not_found", payload["reason"])
+        self.assertTrue(payload["retryable"])
 
     def test_status_lock_contention_does_not_contact_printer(self):
         printer = FakePrinter(RuntimeError("printer must not be contacted"))
@@ -212,6 +214,15 @@ class CliTests(unittest.TestCase):
                 self.assertEqual("", stderr)
                 self.assertEqual("arguments", json.loads(stdout)["command"])
 
+    def test_invalid_prefix_cannot_select_later_help_topic(self):
+        code, stdout, stderr = self.run_cli(
+            ["--json", "not-a-command", "status", "--help"]
+        )
+
+        self.assertEqual(cli.EXIT_USAGE, code)
+        self.assertEqual("", stderr)
+        self.assertEqual("arguments", json.loads(stdout)["command"])
+
     def test_print_sends_every_label_and_copy(self):
         printer = FakePrinter()
 
@@ -258,6 +269,8 @@ class CliTests(unittest.TestCase):
         self.assertEqual(0, payload["printed"])
         self.assertEqual(0, payload["failed_index"])
         self.assertEqual("FIRST", payload["failed_label"])
+        self.assertEqual("not_found", payload["reason"])
+        self.assertTrue(payload["retryable"])
 
     def test_positional_batch_limit_rejects_before_printing(self):
         printer = FakePrinter()
